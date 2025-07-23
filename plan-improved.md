@@ -837,6 +837,21 @@ impl InputValidator {
 - UI polish and accessibility
 - Performance testing and optimization
 
+### Phase 6: Distribution & Release Infrastructure (Weeks 17-18)
+**Deliverables:**
+- Automated CI/CD pipeline for all platforms
+- Code signing and notarization setup
+- Package generation for all supported formats
+- Auto-update infrastructure
+- Release distribution system
+
+**Key Tasks:**
+- GitHub Actions workflow implementation
+- Apple Developer and Windows signing certificate setup
+- Linux package repository configuration
+- Tauri updater integration
+- Distribution channel setup (package managers, app stores)
+
 ## Cross-Platform Considerations
 
 ### Platform-Specific Features
@@ -876,6 +891,336 @@ rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]
 ```
+
+## Automated Distribution & Packaging
+
+### Platform-Specific Package Generation
+
+**Linux Distribution Packages:**
+```yaml
+# .github/workflows/release.yml
+build-linux:
+  strategy:
+    matrix:
+      include:
+        - target: x86_64-unknown-linux-gnu
+          packages: [deb, rpm, AppImage]
+        - target: aarch64-unknown-linux-gnu
+          packages: [deb, rpm]
+  
+  steps:
+    - name: Build Tauri App
+      run: |
+        npm run tauri build -- --target ${{ matrix.target }}
+    
+    - name: Generate Debian Package
+      run: |
+        # .deb generation via Tauri bundler
+        tauri build --target ${{ matrix.target }} --bundle deb
+    
+    - name: Generate RPM Package  
+      run: |
+        # .rpm generation for Red Hat/Fedora
+        tauri build --target ${{ matrix.target }} --bundle rpm
+    
+    - name: Generate AppImage
+      run: |
+        # AppImage for universal Linux distribution
+        tauri build --target ${{ matrix.target }} --bundle appimage
+```
+
+**macOS Distribution Packages:**
+```yaml
+build-macos:
+  strategy:
+    matrix:
+      target: [x86_64-apple-darwin, aarch64-apple-darwin]
+  
+  steps:
+    - name: Build Universal Binary
+      run: |
+        # Build for both Intel and Apple Silicon
+        npm run tauri build -- --target universal-apple-darwin
+    
+    - name: Code Sign Application
+      env:
+        APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+        APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      run: |
+        # Import signing certificate
+        echo $APPLE_CERTIFICATE | base64 --decode > certificate.p12
+        security create-keychain -p actions build.keychain
+        security import certificate.p12 -k build.keychain -P $APPLE_CERTIFICATE_PASSWORD -T /usr/bin/codesign
+        security set-key-partition-list -S apple-tool:,apple: -s -k actions build.keychain
+        
+        # Sign the application
+        codesign --force --deep --sign "Developer ID Application" target/universal-apple-darwin/release/bundle/macos/ValeChat.app
+    
+    - name: Create DMG
+      run: |
+        # Generate DMG installer
+        npm run tauri build -- --target universal-apple-darwin --bundle dmg
+    
+    - name: Notarize Application
+      env:
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        # Submit for notarization
+        xcrun notarytool submit target/universal-apple-darwin/release/bundle/dmg/ValeChat_*.dmg \
+          --apple-id $APPLE_ID \
+          --password $APPLE_PASSWORD \
+          --team-id $APPLE_TEAM_ID \
+          --wait
+        
+        # Staple the notarization
+        xcrun stapler staple target/universal-apple-darwin/release/bundle/dmg/ValeChat_*.dmg
+```
+
+**Windows Distribution Packages:**
+```yaml
+build-windows:
+  strategy:
+    matrix:
+      target: [x86_64-pc-windows-msvc, i686-pc-windows-msvc]
+  
+  steps:
+    - name: Build Windows App
+      run: |
+        npm run tauri build -- --target ${{ matrix.target }}
+    
+    - name: Sign Executable
+      env:
+        WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+        WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      run: |
+        # Sign the executable
+        signtool sign /f certificate.pfx /p $WINDOWS_CERTIFICATE_PASSWORD /tr http://timestamp.digicert.com /td sha256 /fd sha256 target/${{ matrix.target }}/release/ValeChat.exe
+    
+    - name: Generate MSI Installer
+      run: |
+        # Generate MSI package
+        npm run tauri build -- --target ${{ matrix.target }} --bundle msi
+    
+    - name: Create Portable ZIP
+      run: |
+        # Create portable distribution
+        7z a ValeChat-${{ matrix.target }}-portable.zip target/${{ matrix.target }}/release/ValeChat.exe
+```
+
+### Automated Release Pipeline
+
+```yaml
+# .github/workflows/release.yml
+name: Release Pipeline
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build-and-release:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - name: Linux x64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            packages: [deb, rpm, AppImage]
+          
+          - name: Linux ARM64
+            os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            packages: [deb, rpm]
+          
+          - name: macOS Universal
+            os: macos-latest
+            target: universal-apple-darwin
+            packages: [dmg, app]
+          
+          - name: Windows x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            packages: [msi, exe]
+          
+          - name: Windows x86
+            os: windows-latest
+            target: i686-pc-windows-msvc
+            packages: [msi, exe]
+
+    runs-on: ${{ matrix.platform.os }}
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform.target }}
+      
+      - name: Install Platform Dependencies
+        run: |
+          # Linux dependencies
+          if [[ "${{ matrix.platform.os }}" == "ubuntu-latest" ]]; then
+            sudo apt-get update
+            sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          fi
+      
+      - name: Install Frontend Dependencies
+        run: npm ci
+      
+      - name: Build Application
+        run: |
+          npm run tauri build -- --target ${{ matrix.platform.target }}
+      
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            target/${{ matrix.platform.target }}/release/bundle/**/*
+          draft: false
+          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') }}
+```
+
+### Package Management Integration
+
+**Linux Package Repositories:**
+```bash
+# Automated repository publishing
+publish-linux-packages:
+  needs: [build-linux]
+  runs-on: ubuntu-latest
+  
+  steps:
+    - name: Publish to APT Repository
+      run: |
+        # Upload .deb packages to custom APT repository
+        curl -X POST \
+          -H "Authorization: Bearer ${{ secrets.APT_REPO_TOKEN }}" \
+          -F "file=@valechat_*.deb" \
+          https://apt.valechat.ai/upload
+    
+    - name: Publish to YUM Repository
+      run: |
+        # Upload .rpm packages to custom YUM repository
+        curl -X POST \
+          -H "Authorization: Bearer ${{ secrets.YUM_REPO_TOKEN }}" \
+          -F "file=@valechat-*.rpm" \
+          https://yum.valechat.ai/upload
+    
+    - name: Update Flathub
+      run: |
+        # Submit to Flathub for wider Linux distribution
+        # This requires a separate Flatpak manifest
+        git clone https://github.com/flathub/ai.valechat.ValeChat
+        # Update manifest and create PR
+```
+
+**macOS Distribution:**
+```bash
+# Mac App Store and direct distribution
+publish-macos:
+  needs: [build-macos]
+  runs-on: macos-latest
+  
+  steps:
+    - name: Upload to App Store Connect
+      env:
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      run: |
+        # Upload to App Store for review
+        xcrun altool --upload-app -f ValeChat.pkg \
+          --type macos \
+          --username $APPLE_ID \
+          --password $APPLE_PASSWORD
+    
+    - name: Update Homebrew Cask
+      run: |
+        # Update Homebrew cask for direct installation
+        # This creates a PR to homebrew-cask repository
+        brew bump-cask-pr valechat --version=${{ github.ref_name }}
+```
+
+**Windows Distribution:**
+```bash
+# Windows Package Managers
+publish-windows:
+  needs: [build-windows]
+  runs-on: windows-latest
+  
+  steps:
+    - name: Publish to Chocolatey
+      env:
+        CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
+      run: |
+        # Upload to Chocolatey package manager
+        choco push valechat.${{ github.ref_name }}.nupkg --api-key $CHOCOLATEY_API_KEY
+    
+    - name: Publish to WinGet
+      run: |
+        # Submit to Microsoft WinGet repository
+        # This creates a PR to winget-pkgs repository
+        wingetcreate update ValeChat.ValeChat --version ${{ github.ref_name }} --urls https://github.com/valechat/valechat/releases/download/${{ github.ref_name }}/ValeChat_x64.msi
+```
+
+### Auto-Update Infrastructure
+
+```rust
+// Tauri updater configuration
+use tauri::updater;
+
+pub async fn setup_auto_updater(app: &AppHandle) -> Result<()> {
+    let handle = app.clone();
+    
+    // Check for updates every 6 hours
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(21600));
+        
+        loop {
+            interval.tick().await;
+            
+            if let Ok(update) = updater::builder(&handle)
+                .check()
+                .await
+            {
+                if update.is_update_available() {
+                    // Download and install update
+                    update.download_and_install().await?;
+                }
+            }
+        }
+    });
+    
+    Ok(())
+}
+```
+
+### Distribution Channels
+
+**Primary Distribution:**
+- **GitHub Releases**: Automatic asset upload for all platforms
+- **Direct Download**: https://valechat.ai/download with platform detection
+
+**Package Managers:**
+- **Linux**: Custom APT/YUM repos + Flathub + Snap Store
+- **macOS**: Mac App Store + Homebrew Cask
+- **Windows**: Microsoft Store + Chocolatey + WinGet
+
+**Update Delivery:**
+- **Tauri Built-in Updater**: Automatic background updates
+- **Update Server**: https://updates.valechat.ai with signature verification
+- **Rollback Support**: Previous version restoration on update failure
 
 ## Risk Mitigation
 

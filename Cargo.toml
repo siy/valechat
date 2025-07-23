@@ -21,7 +21,7 @@ futures = "0.3"
 async-stream = "0.3"
 
 # HTTP & WebSockets
-reqwest = { version = "0.12", features = ["json", "stream"] }
+reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"] }
 tokio-tungstenite = "0.21"
 
 # Serialization
@@ -60,6 +60,7 @@ parking_lot = "0.12"
 # Input Validation
 validator = { version = "0.18", features = ["derive"] }
 ammonia = "3.3"
+regex = "1.10"
 
 # Async trait support
 async-trait = "0.1"

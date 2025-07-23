@@ -1,4 +1,5 @@
 pub mod app;
+pub mod chat;
 pub mod models;
 pub mod mcp;
 pub mod platform;

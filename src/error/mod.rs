@@ -34,6 +34,9 @@ pub enum Error {
     #[error("Validation error: {0}")]
     Validation(String),
 
+    #[error("Chat error: {0}")]
+    Chat(String),
+
     #[error("Secure storage error: {0}")]
     SecureStorage(#[from] keyring::Error),
 
@@ -59,6 +62,10 @@ impl Error {
 
     pub fn validation(msg: impl Into<String>) -> Self {
         Error::Validation(msg.into())
+    }
+
+    pub fn chat(msg: impl Into<String>) -> Self {
+        Error::Chat(msg.into())
     }
 
     pub fn unknown(msg: impl Into<String>) -> Self {
