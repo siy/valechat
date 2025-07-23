@@ -6,9 +6,11 @@ use tracing::info;
 use std::sync::Arc;
 use uuid::Uuid;
 use chrono;
+use rust_decimal::prelude::ToPrimitive;
 use valechat::{app::AppState, error::Result as AppResult};
+use valechat::chat::types::{MessageContent, MessageRole, ChatSession, SessionSettings, SessionStatus, SessionMetrics};
 use valechat::platform::{AppPaths, SecureStorageManager};
-use valechat::app::AppConfig;
+use valechat::app::{AppConfig, config::{MCPServerConfig, TransportType}};
 
 // Tauri command result type
 type CommandResult<T> = Result<T, String>;
@@ -78,9 +80,27 @@ struct MessageResponse {
 #[tauri::command]
 async fn get_conversations(app_state: State<'_, AppState>) -> CommandResult<Vec<ConversationResponse>> {
     info!("Getting conversations");
-    // TODO: Implement conversation retrieval from database
-    // For now, return empty list
-    Ok(vec![])
+    
+    match app_state.get_conversation_repo().list_conversations(Some(50), Some(0)).await {
+        Ok(sessions) => {
+            let conversations: Vec<ConversationResponse> = sessions.into_iter().map(|session| {
+                ConversationResponse {
+                    id: session.id,
+                    title: session.title,
+                    created_at: session.created_at.timestamp_millis(),
+                    updated_at: session.updated_at.timestamp_millis(),
+                    model_provider: Some(session.model_provider),
+                    total_cost: Some(session.metrics.total_cost.to_string()),
+                    message_count: session.metrics.message_count as i32,
+                }
+            }).collect();
+            Ok(conversations)
+        }
+        Err(e) => {
+            eprintln!("Failed to retrieve conversations: {}", e);
+            Ok(vec![]) // Return empty list on error for now
+        }
+    }
 }
 
 #[tauri::command]
@@ -91,18 +111,40 @@ async fn create_conversation(
     info!("Creating conversation: {:?}", request.title);
     
     let conversation_id = Uuid::new_v4().to_string();
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = chrono::Utc::now();
+    let title = request.title.unwrap_or_else(|| "New Conversation".to_string());
     
-    // TODO: Save to database
-    Ok(ConversationResponse {
-        id: conversation_id,
-        title: request.title.unwrap_or_else(|| "New Conversation".to_string()),
+    // Create a new ChatSession
+    let session = ChatSession {
+        id: conversation_id.clone(),
+        title: title.clone(),
         created_at: now,
         updated_at: now,
-        model_provider: None,
-        total_cost: None,
-        message_count: 0,
-    })
+        model_provider: "".to_string(), // Will be set when first message is sent
+        model_name: "".to_string(),
+        system_prompt: None,
+        settings: SessionSettings::default(),
+        status: SessionStatus::Active,
+        metrics: SessionMetrics::default(),
+    };
+    
+    match app_state.get_conversation_repo().create_conversation(&session).await {
+        Ok(_) => {
+            Ok(ConversationResponse {
+                id: conversation_id,
+                title,
+                created_at: now.timestamp_millis(),
+                updated_at: now.timestamp_millis(),
+                model_provider: None,
+                total_cost: Some("0.00".to_string()),
+                message_count: 0,
+            })
+        }
+        Err(e) => {
+            eprintln!("Failed to create conversation: {}", e);
+            Err(format!("Failed to create conversation: {}", e))
+        }
+    }
 }
 
 #[tauri::command]
@@ -137,8 +179,38 @@ async fn get_conversation_messages(
     app_state: State<'_, AppState>
 ) -> CommandResult<Vec<MessageResponse>> {
     info!("Getting messages for conversation {}", conversation_id);
-    // TODO: Implement message retrieval from database
-    Ok(vec![])
+    
+    match app_state.get_conversation_repo().get_messages(&conversation_id).await {
+        Ok(messages) => {
+            let message_responses: Vec<MessageResponse> = messages.into_iter().map(|msg| {
+                MessageResponse {
+                    id: msg.id,
+                    role: match msg.role {
+                        MessageRole::User => "user".to_string(),
+                        MessageRole::Assistant => "assistant".to_string(),
+                        MessageRole::System => "system".to_string(),
+                        MessageRole::Tool => "tool".to_string(),
+                    },
+                    content: match msg.content {
+                        MessageContent::Text(text) => text,
+                        _ => "".to_string(), // Handle other content types if needed
+                    },
+                    timestamp: msg.timestamp.timestamp_millis(),
+                    model_used: msg.metadata.get("model_used").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                    provider: msg.metadata.get("provider").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                    input_tokens: msg.metadata.get("input_tokens").and_then(|v| v.as_i64()).map(|t| t as i32),
+                    output_tokens: msg.metadata.get("output_tokens").and_then(|v| v.as_i64()).map(|t| t as i32),
+                    cost: msg.metadata.get("cost").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                    processing_time_ms: msg.metadata.get("processing_time_ms").and_then(|v| v.as_i64()),
+                }
+            }).collect();
+            Ok(message_responses)
+        }
+        Err(e) => {
+            eprintln!("Failed to retrieve messages: {}", e);
+            Ok(vec![])
+        }
+    }
 }
 
 #[tauri::command]
@@ -147,8 +219,14 @@ async fn delete_conversation(
     app_state: State<'_, AppState>
 ) -> CommandResult<()> {
     info!("Deleting conversation {}", conversation_id);
-    // TODO: Implement conversation deletion
-    Ok(())
+    
+    match app_state.get_conversation_repo().delete_conversation(&conversation_id).await {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            eprintln!("Failed to delete conversation: {}", e);
+            Err(format!("Failed to delete conversation: {}", e))
+        }
+    }
 }
 
 #[tauri::command]
@@ -158,8 +236,14 @@ async fn update_conversation_title(
     app_state: State<'_, AppState>
 ) -> CommandResult<()> {
     info!("Updating conversation {} title to {}", conversation_id, title);
-    // TODO: Implement conversation title update
-    Ok(())
+    
+    match app_state.get_conversation_repo().update_conversation_title(&conversation_id, &title).await {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            eprintln!("Failed to update conversation title: {}", e);
+            Err(format!("Failed to update conversation title: {}", e))
+        }
+    }
 }
 
 // Configuration commands
@@ -233,40 +317,96 @@ struct BillingLimitsResponse {
 async fn get_app_config(app_state: State<'_, AppState>) -> CommandResult<ConfigResponse> {
     info!("Getting app configuration");
     
-    // TODO: Load actual configuration from AppState
-    // For now, return mock configuration
+    let config = app_state.get_config();
+    
+    // Convert model providers
+    let mut model_providers = Vec::new();
+    for (provider_id, provider_config) in &config.models {
+        let models = match provider_id.as_str() {
+            "openai" => vec![
+                ModelResponse {
+                    id: "gpt-4".to_string(),
+                    name: "gpt-4".to_string(),
+                    display_name: "GPT-4".to_string(),
+                    provider: "openai".to_string(),
+                    context_length: 8192,
+                    supports_streaming: true,
+                    input_price_per_1k: Some("0.03".to_string()),
+                    output_price_per_1k: Some("0.06".to_string()),
+                },
+                ModelResponse {
+                    id: "gpt-3.5-turbo".to_string(),
+                    name: "gpt-3.5-turbo".to_string(),
+                    display_name: "GPT-3.5 Turbo".to_string(),
+                    provider: "openai".to_string(),
+                    context_length: 4096,
+                    supports_streaming: true,
+                    input_price_per_1k: Some("0.0015".to_string()),
+                    output_price_per_1k: Some("0.002".to_string()),
+                },
+            ],
+            "anthropic" => vec![
+                ModelResponse {
+                    id: "claude-3-opus".to_string(),
+                    name: "claude-3-opus-20240229".to_string(),
+                    display_name: "Claude 3 Opus".to_string(),
+                    provider: "anthropic".to_string(),
+                    context_length: 200000,
+                    supports_streaming: true,
+                    input_price_per_1k: Some("0.015".to_string()),
+                    output_price_per_1k: Some("0.075".to_string()),
+                },
+                ModelResponse {
+                    id: "claude-3-sonnet".to_string(),
+                    name: "claude-3-sonnet-20240229".to_string(),
+                    display_name: "Claude 3 Sonnet".to_string(),
+                    provider: "anthropic".to_string(),
+                    context_length: 200000,
+                    supports_streaming: true,
+                    input_price_per_1k: Some("0.003".to_string()),
+                    output_price_per_1k: Some("0.015".to_string()),
+                },
+            ],
+            _ => vec![],
+        };
+
+        model_providers.push(ModelProviderResponse {
+            id: provider_id.clone(),
+            name: provider_config.provider.clone(),
+            provider_type: provider_id.clone(),
+            enabled: provider_config.enabled,
+            models,
+        });
+    }
+
     Ok(ConfigResponse {
-        theme: "system".to_string(),
-        language: "en".to_string(),
-        model_providers: vec![
-            ModelProviderResponse {
-                id: "openai".to_string(),
-                name: "OpenAI".to_string(),
-                provider_type: "openai".to_string(),
-                enabled: false,
-                models: vec![
-                    ModelResponse {
-                        id: "gpt-4".to_string(),
-                        name: "gpt-4".to_string(),
-                        display_name: "GPT-4".to_string(),
-                        provider: "openai".to_string(),
-                        context_length: 8192,
-                        supports_streaming: true,
-                        input_price_per_1k: Some("0.03".to_string()),
-                        output_price_per_1k: Some("0.06".to_string()),
-                    },
-                ],
-            },
-        ],
-        mcp_servers: vec![],
+        theme: config.ui.theme.clone(),
+        language: "en".to_string(), // TODO: Add language field to UIConfig
+        model_providers,
+        mcp_servers: {
+            let mut servers = Vec::new();
+            for (server_id, server_config) in &config.mcp_servers {
+                servers.push(MCPServerResponse {
+                    id: server_id.clone(),
+                    name: server_config.name.clone(),
+                    command: server_config.command.clone(),
+                    args: server_config.args.clone(),
+                    enabled: server_config.enabled,
+                    status: if server_config.enabled { "ready".to_string() } else { "disabled".to_string() },
+                    tools: vec![], // Tools would be populated after connecting to the server
+                    resources: vec![], // Resources would be populated after connecting to the server
+                });
+            }
+            servers
+        },
         billing_limits: BillingLimitsResponse {
-            daily_limit: None,
-            monthly_limit: None,
+            daily_limit: config.billing.daily_limit_usd.map(|d| d.to_string()),
+            monthly_limit: config.billing.monthly_limit_usd.map(|m| m.to_string()),
             per_model_limits: std::collections::HashMap::new(),
             per_conversation_limits: std::collections::HashMap::new(),
         },
-        auto_save: true,
-        streaming: true,
+        auto_save: true, // TODO: Add auto_save field to config
+        streaming: true, // TODO: Add streaming field to config
     })
 }
 
@@ -284,8 +424,21 @@ async fn update_app_config(
     app_state: State<'_, AppState>
 ) -> CommandResult<()> {
     info!("Updating app configuration");
-    // TODO: Update actual configuration
-    Ok(())
+    
+    match app_state.update_config(|config| {
+        if let Some(theme) = request.theme {
+            config.ui.theme = theme;
+        }
+        // TODO: Add language field to UIConfig and implement
+        // TODO: Add auto_save field to config and implement
+        // TODO: Add streaming field to config and implement
+    }).await {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            eprintln!("Failed to update configuration: {}", e);
+            Err(format!("Failed to update configuration: {}", e))
+        }
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -301,8 +454,21 @@ async fn update_model_provider(
     app_state: State<'_, AppState>
 ) -> CommandResult<()> {
     info!("Updating model provider {}", request.id);
-    // TODO: Update model provider configuration
-    Ok(())
+    
+    match app_state.update_config(|config| {
+        if let Some(model_config) = config.models.get_mut(&request.id) {
+            if let Some(enabled) = request.enabled {
+                model_config.enabled = enabled;
+            }
+            // Additional configuration updates could be added here based on the config HashMap
+        }
+    }).await {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            eprintln!("Failed to update model provider: {}", e);
+            Err(format!("Failed to update model provider: {}", e))
+        }
+    }
 }
 
 // MCP server commands
@@ -325,8 +491,24 @@ struct UpdateMCPServerRequest {
 #[tauri::command]
 async fn get_mcp_servers(app_state: State<'_, AppState>) -> CommandResult<Vec<MCPServerResponse>> {
     info!("Getting MCP servers");
-    // TODO: Implement MCP server retrieval
-    Ok(vec![])
+    
+    let config = app_state.get_config();
+    let mut servers = Vec::new();
+    
+    for (server_id, server_config) in &config.mcp_servers {
+        servers.push(MCPServerResponse {
+            id: server_id.clone(),
+            name: server_config.name.clone(),
+            command: server_config.command.clone(),
+            args: server_config.args.clone(),
+            enabled: server_config.enabled,
+            status: if server_config.enabled { "ready".to_string() } else { "disabled".to_string() },
+            tools: vec![], // Tools would be populated after connecting to the server
+            resources: vec![], // Resources would be populated after connecting to the server
+        });
+    }
+    
+    Ok(servers)
 }
 
 #[tauri::command]
@@ -338,17 +520,39 @@ async fn add_mcp_server(
     
     let server_id = Uuid::new_v4().to_string();
     
-    // TODO: Save to database and start server
-    Ok(MCPServerResponse {
-        id: server_id,
-        name: request.name,
-        command: request.command,
-        args: request.args,
+    // Create new MCP server configuration
+    let mcp_config = MCPServerConfig {
+        name: request.name.clone(),
+        command: request.command.clone(),
+        args: request.args.clone(),
+        transport_type: TransportType::Stdio,
+        env_vars: std::collections::HashMap::new(),
         enabled: true,
-        status: "stopped".to_string(),
-        tools: vec![],
-        resources: vec![],
-    })
+        auto_start: false,
+        timeout_seconds: 30,
+    };
+    
+    // Save to configuration
+    match app_state.update_config(|config| {
+        config.mcp_servers.insert(server_id.clone(), mcp_config);
+    }).await {
+        Ok(_) => {
+            Ok(MCPServerResponse {
+                id: server_id,
+                name: request.name,
+                command: request.command,
+                args: request.args,
+                enabled: true,
+                status: "stopped".to_string(),
+                tools: vec![],
+                resources: vec![],
+            })
+        }
+        Err(e) => {
+            eprintln!("Failed to add MCP server: {}", e);
+            Err(format!("Failed to add MCP server: {}", e))
+        }
+    }
 }
 
 #[tauri::command]
@@ -357,8 +561,29 @@ async fn update_mcp_server(
     app_state: State<'_, AppState>
 ) -> CommandResult<()> {
     info!("Updating MCP server {}", request.id);
-    // TODO: Update MCP server configuration
-    Ok(())
+    
+    match app_state.update_config(|config| {
+        if let Some(server_config) = config.mcp_servers.get_mut(&request.id) {
+            if let Some(enabled) = request.enabled {
+                server_config.enabled = enabled;
+            }
+            if let Some(name) = request.name {
+                server_config.name = name;
+            }
+            if let Some(command) = request.command {
+                server_config.command = command;
+            }
+            if let Some(args) = request.args {
+                server_config.args = args;
+            }
+        }
+    }).await {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            eprintln!("Failed to update MCP server: {}", e);
+            Err(format!("Failed to update MCP server: {}", e))
+        }
+    }
 }
 
 #[tauri::command]
@@ -367,8 +592,16 @@ async fn remove_mcp_server(
     app_state: State<'_, AppState>
 ) -> CommandResult<()> {
     info!("Removing MCP server {}", server_id);
-    // TODO: Stop and remove MCP server
-    Ok(())
+    
+    match app_state.update_config(|config| {
+        config.mcp_servers.remove(&server_id);
+    }).await {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            eprintln!("Failed to remove MCP server: {}", e);
+            Err(format!("Failed to remove MCP server: {}", e))
+        }
+    }
 }
 
 #[tauri::command]
@@ -437,22 +670,84 @@ async fn get_usage_records(
     app_state: State<'_, AppState>
 ) -> CommandResult<Vec<UsageRecordResponse>> {
     info!("Getting usage records (limit: {:?}, offset: {:?})", limit, offset);
-    // TODO: Implement actual usage record retrieval
-    Ok(vec![])
+    
+    let limit = limit.unwrap_or(100) as usize;
+    let offset = offset.unwrap_or(0) as usize;
+    
+    match app_state.get_usage_repo().get_usage_records(None, None, None, Some(limit as i32), Some(offset as i32)).await {
+        Ok(records) => {
+            let usage_responses: Vec<UsageRecordResponse> = records.into_iter().map(|record| {
+                UsageRecordResponse {
+                    id: Some(record.id),
+                    timestamp: record.timestamp.timestamp_millis(),
+                    provider: record.provider,
+                    model: record.model,
+                    input_tokens: record.input_tokens as i32,
+                    output_tokens: record.output_tokens as i32,
+                    cost: record.cost.to_string(),
+                    conversation_id: record.conversation_id,
+                    request_id: record.request_id,
+                }
+            }).collect();
+            Ok(usage_responses)
+        }
+        Err(e) => {
+            eprintln!("Failed to retrieve usage records: {}", e);
+            Ok(vec![])
+        }
+    }
 }
 
 #[tauri::command]
 async fn get_usage_summary(app_state: State<'_, AppState>) -> CommandResult<UsageSummaryResponse> {
     info!("Getting usage summary");
-    // TODO: Implement actual usage summary calculation
-    Ok(UsageSummaryResponse {
-        daily_cost: "0.00".to_string(),
-        monthly_cost: "0.00".to_string(),
-        daily_tokens: 0,
-        monthly_tokens: 0,
-        top_models: vec![],
-        cost_trend: vec![],
-    })
+    
+    match app_state.get_usage_repo().get_usage_statistics().await {
+        Ok(stats) => {
+            // Convert model usage to top models
+            let mut top_models: Vec<TopModelUsage> = stats.by_model.into_iter().map(|(model, usage)| {
+                let total_cost = usage.cost;
+                let total_tokens = usage.input_tokens + usage.output_tokens;
+                let percentage = if stats.total_cost > rust_decimal::Decimal::ZERO {
+                    (total_cost / stats.total_cost * rust_decimal::Decimal::from(100)).to_f64().unwrap_or(0.0)
+                } else {
+                    0.0
+                };
+                
+                TopModelUsage {
+                    model: model.clone(),
+                    provider: "".to_string(), // TODO: Extract provider from model name
+                    cost: total_cost.to_string(),
+                    tokens: total_tokens as i32,
+                    percentage,
+                }
+            }).collect();
+            
+            // Sort by cost and take top models
+            top_models.sort_by(|a, b| b.cost.parse::<f64>().unwrap_or(0.0).partial_cmp(&a.cost.parse::<f64>().unwrap_or(0.0)).unwrap());
+            top_models.truncate(5);
+
+            Ok(UsageSummaryResponse {
+                daily_cost: "0.00".to_string(), // TODO: Calculate daily cost
+                monthly_cost: stats.current_month_cost.to_string(),
+                daily_tokens: 0, // TODO: Calculate daily tokens
+                monthly_tokens: (stats.total_input_tokens + stats.total_output_tokens) as i32,
+                top_models,
+                cost_trend: vec![], // TODO: Implement cost trend calculation
+            })
+        }
+        Err(e) => {
+            eprintln!("Failed to retrieve usage summary: {}", e);
+            Ok(UsageSummaryResponse {
+                daily_cost: "0.00".to_string(),
+                monthly_cost: "0.00".to_string(),
+                daily_tokens: 0,
+                monthly_tokens: 0,
+                top_models: vec![],
+                cost_trend: vec![],
+            })
+        }
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -468,8 +763,28 @@ async fn update_billing_limits(
     app_state: State<'_, AppState>
 ) -> CommandResult<()> {
     info!("Updating billing limits");
-    // TODO: Update billing limits
-    Ok(())
+    
+    match app_state.update_config(|config| {
+        if let Some(daily_limit) = request.daily_limit {
+            config.billing.daily_limit_usd = daily_limit.parse().ok();
+        }
+        if let Some(monthly_limit) = request.monthly_limit {
+            config.billing.monthly_limit_usd = monthly_limit.parse().ok();
+        }
+        if let Some(per_model_limits) = request.per_model_limits {
+            for (model, limit_str) in per_model_limits {
+                if let Ok(limit) = limit_str.parse::<f64>() {
+                    config.billing.per_model_limits.insert(model, limit);
+                }
+            }
+        }
+    }).await {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            eprintln!("Failed to update billing limits: {}", e);
+            Err(format!("Failed to update billing limits: {}", e))
+        }
+    }
 }
 
 #[tauri::command]

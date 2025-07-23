@@ -518,6 +518,28 @@ impl ConversationRepository {
         Ok(invocations)
     }
 
+    /// Update conversation title
+    pub async fn update_conversation_title(&self, conversation_id: &str, title: &str) -> Result<()> {
+        debug!("Updating conversation title: {} -> {}", conversation_id, title);
+
+        let rows_affected = sqlx::query(
+            "UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?"
+        )
+        .bind(title)
+        .bind(Utc::now().timestamp())
+        .bind(conversation_id)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+
+        if rows_affected == 0 {
+            return Err(Error::Database(sqlx::Error::RowNotFound));
+        }
+
+        debug!("Successfully updated conversation title: {}", conversation_id);
+        Ok(())
+    }
+
     /// Get conversation statistics
     pub async fn get_conversation_statistics(&self) -> Result<ConversationStatistics> {
         debug!("Getting conversation statistics");

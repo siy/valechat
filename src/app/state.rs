@@ -5,11 +5,15 @@ use tracing::{info, debug};
 use crate::app::config::AppConfig;
 use crate::error::Result;
 use crate::platform::{AppPaths, SecureStorageManager};
+use crate::storage::{Database, ConversationRepository, UsageRepository};
 
 pub struct AppState {
     config: Arc<RwLock<AppConfig>>,
     paths: AppPaths,
     secure_storage: SecureStorageManager,
+    database: Database,
+    conversation_repo: ConversationRepository,
+    usage_repo: UsageRepository,
 }
 
 impl AppState {
@@ -20,10 +24,21 @@ impl AppState {
     ) -> Result<Self> {
         info!("Initializing application state");
 
+        // Initialize database
+        let database = Database::new(&paths).await?;
+        let pool = database.get_pool();
+        
+        // Initialize repositories
+        let conversation_repo = ConversationRepository::new(pool.clone());
+        let usage_repo = UsageRepository::new(pool.clone());
+
         Ok(Self {
             config: Arc::new(RwLock::new(config)),
             paths,
             secure_storage,
+            database,
+            conversation_repo,
+            usage_repo,
         })
     }
 
@@ -91,6 +106,18 @@ impl AppState {
 
     pub fn get_paths(&self) -> &AppPaths {
         &self.paths
+    }
+
+    pub fn get_conversation_repo(&self) -> &ConversationRepository {
+        &self.conversation_repo
+    }
+
+    pub fn get_usage_repo(&self) -> &UsageRepository {
+        &self.usage_repo
+    }
+
+    pub fn get_database(&self) -> &Database {
+        &self.database
     }
 
     pub async fn validate_provider_credentials(&self, provider: &str) -> Result<bool> {

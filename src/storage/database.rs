@@ -38,6 +38,11 @@ impl Database {
         Ok(db)
     }
 
+    /// Get a reference to the database connection pool
+    pub fn get_pool(&self) -> SqlitePool {
+        self.pool.clone()
+    }
+
     /// Run all pending database migrations
     async fn run_migrations(&self) -> Result<()> {
         info!("Running database migrations");
