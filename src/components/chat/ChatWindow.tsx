@@ -6,6 +6,7 @@ import InputArea from './InputArea';
 import ConversationSidebar from './ConversationSidebar';
 import ModelSelector from './ModelSelector';
 import SettingsWindow from '../settings/SettingsWindow';
+import UsageDashboard from '../dashboard/UsageDashboard';
 import './ChatWindow.css';
 
 const ChatWindow: React.FC = () => {
@@ -23,6 +24,7 @@ const ChatWindow: React.FC = () => {
   const { config, loadConfig } = useSettingsStore();
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showDashboard, setShowDashboard] = useState(false);
 
   useEffect(() => {
     // Load initial data
@@ -63,6 +65,13 @@ const ChatWindow: React.FC = () => {
           </div>
           <div className="chat-header-actions">
             <ModelSelector />
+            <button 
+              className="dashboard-button"
+              onClick={() => setShowDashboard(true)}
+              title="Usage Dashboard"
+            >
+              📊
+            </button>
             <button 
               className="settings-button"
               onClick={() => setShowSettings(true)}
@@ -130,6 +139,12 @@ const ChatWindow: React.FC = () => {
       <SettingsWindow 
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
+      />
+
+      {/* Usage Dashboard */}
+      <UsageDashboard 
+        isOpen={showDashboard}
+        onClose={() => setShowDashboard(false)}
       />
     </div>
   );

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { MCPServer } from '../../types';
 
@@ -16,35 +17,67 @@ const MCPServerSettings: React.FC<MCPServerSettingsProps> = ({ onSettingsChange 
     args: '',
   });
 
-  const handleAddServer = () => {
+  const handleAddServer = async () => {
     if (!newServer.name || !newServer.command) return;
 
-    const server: MCPServer = {
-      id: Date.now().toString(),
-      name: newServer.name,
-      command: newServer.command,
-      args: newServer.args ? newServer.args.split(' ').filter(arg => arg.trim()) : [],
-      enabled: true,
-      status: 'stopped',
-      tools: [],
-      resources: [],
-    };
+    try {
+      const server: MCPServer = {
+        id: Date.now().toString(),
+        name: newServer.name,
+        command: newServer.command,
+        args: newServer.args ? newServer.args.split(' ').filter(arg => arg.trim()) : [],
+        enabled: true,
+        status: 'stopped',
+        tools: [],
+        resources: [],
+      };
 
-    addMCPServer(server);
-    setNewServer({ name: '', command: '', args: '' });
-    setShowAddForm(false);
-    onSettingsChange();
-  };
-
-  const handleServerToggle = (serverId: string, enabled: boolean) => {
-    updateMCPServer(serverId, { enabled });
-    onSettingsChange();
-  };
-
-  const handleRemoveServer = (serverId: string) => {
-    if (window.confirm('Are you sure you want to remove this MCP server?')) {
-      removeMCPServer(serverId);
+      await addMCPServer(server);
+      setNewServer({ name: '', command: '', args: '' });
+      setShowAddForm(false);
       onSettingsChange();
+    } catch (error) {
+      console.error('Failed to add server:', error);
+    }
+  };
+
+  const handleServerToggle = async (serverId: string, enabled: boolean) => {
+    try {
+      await updateMCPServer(serverId, { enabled });
+      onSettingsChange();
+    } catch (error) {
+      console.error('Failed to toggle server:', error);
+    }
+  };
+
+  const handleRemoveServer = async (serverId: string) => {
+    if (window.confirm('Are you sure you want to remove this MCP server?')) {
+      try {
+        await removeMCPServer(serverId);
+        onSettingsChange();
+      } catch (error) {
+        console.error('Failed to remove server:', error);
+      }
+    }
+  };
+
+  const handleStartServer = async (serverId: string) => {
+    try {
+      await invoke('start_mcp_server', { server_id: serverId });
+      await updateMCPServer(serverId, { status: 'starting' });
+      onSettingsChange();
+    } catch (error) {
+      console.error('Failed to start server:', error);
+    }
+  };
+
+  const handleStopServer = async (serverId: string) => {
+    try {
+      await invoke('stop_mcp_server', { server_id: serverId });
+      await updateMCPServer(serverId, { status: 'stopped' });
+      onSettingsChange();
+    } catch (error) {
+      console.error('Failed to stop server:', error);
     }
   };
 
@@ -201,6 +234,18 @@ const MCPServerSettings: React.FC<MCPServerSettingsProps> = ({ onSettingsChange 
                       />
                       <span className="form-switch-slider"></span>
                     </label>
+                    {server.enabled && (
+                      <button
+                        className={`btn btn-small ${server.status === 'running' ? 'btn-danger' : 'btn-primary'}`}
+                        onClick={() => server.status === 'running' 
+                          ? handleStopServer(server.id) 
+                          : handleStartServer(server.id)
+                        }
+                        disabled={server.status === 'starting'}
+                      >
+                        {server.status === 'running' ? '⏸' : server.status === 'starting' ? '⏳' : '▶️'}
+                      </button>
+                    )}
                     <button
                       className="btn btn-small"
                       onClick={() => toggleServerExpansion(server.id)}

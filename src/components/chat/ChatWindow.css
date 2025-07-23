@@ -176,6 +176,7 @@
   gap: 12px;
 }
 
+.dashboard-button,
 .settings-button {
   width: 36px;
   height: 36px;
@@ -191,6 +192,7 @@
   transition: all 0.2s ease;
 }
 
+.dashboard-button:hover,
 .settings-button:hover {
   background: var(--bg-hover);
   color: var(--text-primary);

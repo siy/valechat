@@ -305,6 +305,92 @@ async fn update_model_provider(
     Ok(())
 }
 
+// MCP server commands
+#[derive(serde::Deserialize)]
+struct AddMCPServerRequest {
+    name: String,
+    command: String,
+    args: Vec<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct UpdateMCPServerRequest {
+    id: String,
+    enabled: Option<bool>,
+    name: Option<String>,
+    command: Option<String>,
+    args: Option<Vec<String>>,
+}
+
+#[tauri::command]
+async fn get_mcp_servers(app_state: State<'_, AppState>) -> CommandResult<Vec<MCPServerResponse>> {
+    info!("Getting MCP servers");
+    // TODO: Implement MCP server retrieval
+    Ok(vec![])
+}
+
+#[tauri::command]
+async fn add_mcp_server(
+    request: AddMCPServerRequest,
+    app_state: State<'_, AppState>
+) -> CommandResult<MCPServerResponse> {
+    info!("Adding MCP server: {}", request.name);
+    
+    let server_id = Uuid::new_v4().to_string();
+    
+    // TODO: Save to database and start server
+    Ok(MCPServerResponse {
+        id: server_id,
+        name: request.name,
+        command: request.command,
+        args: request.args,
+        enabled: true,
+        status: "stopped".to_string(),
+        tools: vec![],
+        resources: vec![],
+    })
+}
+
+#[tauri::command]
+async fn update_mcp_server(
+    request: UpdateMCPServerRequest,
+    app_state: State<'_, AppState>
+) -> CommandResult<()> {
+    info!("Updating MCP server {}", request.id);
+    // TODO: Update MCP server configuration
+    Ok(())
+}
+
+#[tauri::command]
+async fn remove_mcp_server(
+    server_id: String,
+    app_state: State<'_, AppState>
+) -> CommandResult<()> {
+    info!("Removing MCP server {}", server_id);
+    // TODO: Stop and remove MCP server
+    Ok(())
+}
+
+#[tauri::command]
+async fn start_mcp_server(
+    server_id: String,
+    app_state: State<'_, AppState>
+) -> CommandResult<()> {
+    info!("Starting MCP server {}", server_id);
+    // TODO: Start MCP server process
+    Ok(())
+}
+
+#[tauri::command]
+async fn stop_mcp_server(
+    server_id: String,
+    app_state: State<'_, AppState>
+) -> CommandResult<()> {
+    info!("Stopping MCP server {}", server_id);
+    // TODO: Stop MCP server process
+    Ok(())
+}
+
 // Billing and usage commands
 #[derive(serde::Serialize)]
 struct UsageRecordResponse {
@@ -463,6 +549,13 @@ pub fn run() {
             get_app_config,
             update_app_config,
             update_model_provider,
+            // MCP server commands
+            get_mcp_servers,
+            add_mcp_server,
+            update_mcp_server,
+            remove_mcp_server,
+            start_mcp_server,
+            stop_mcp_server,
             // Billing commands
             get_usage_records,
             get_usage_summary,

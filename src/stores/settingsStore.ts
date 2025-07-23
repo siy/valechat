@@ -128,20 +128,65 @@ export const useSettingsStore = create<SettingsState>()(
       state.config.model_providers = state.config.model_providers.filter(p => p.id !== providerId);
     }),
 
-    updateMCPServer: (serverId, updates) => set((state) => {
-      const serverIndex = state.config.mcp_servers.findIndex(s => s.id === serverId);
-      if (serverIndex !== -1) {
-        Object.assign(state.config.mcp_servers[serverIndex], updates);
+    updateMCPServer: async (serverId, updates) => {
+      try {
+        await invoke('update_mcp_server', {
+          id: serverId,
+          ...updates,
+        });
+        
+        set((state) => {
+          const serverIndex = state.config.mcp_servers.findIndex(s => s.id === serverId);
+          if (serverIndex !== -1) {
+            Object.assign(state.config.mcp_servers[serverIndex], updates);
+          }
+        });
+      } catch (error) {
+        console.error('Failed to update MCP server:', error);
+        throw error;
       }
-    }),
+    },
 
-    addMCPServer: (server) => set((state) => {
-      state.config.mcp_servers.push(server);
-    }),
+    addMCPServer: async (server) => {
+      try {
+        const response = await invoke('add_mcp_server', {
+          name: server.name,
+          command: server.command,
+          args: server.args,
+        }) as any;
+        
+        const newServer: MCPServer = {
+          id: response.id,
+          name: response.name,
+          command: response.command,
+          args: response.args,
+          enabled: response.enabled,
+          status: response.status,
+          tools: response.tools || [],
+          resources: response.resources || [],
+        };
+        
+        set((state) => {
+          state.config.mcp_servers.push(newServer);
+        });
+      } catch (error) {
+        console.error('Failed to add MCP server:', error);
+        throw error;
+      }
+    },
 
-    removeMCPServer: (serverId) => set((state) => {
-      state.config.mcp_servers = state.config.mcp_servers.filter(s => s.id !== serverId);
-    }),
+    removeMCPServer: async (serverId) => {
+      try {
+        await invoke('remove_mcp_server', { server_id: serverId });
+        
+        set((state) => {
+          state.config.mcp_servers = state.config.mcp_servers.filter(s => s.id !== serverId);
+        });
+      } catch (error) {
+        console.error('Failed to remove MCP server:', error);
+        throw error;
+      }
+    },
 
     updateBillingLimits: (limits) => set((state) => {
       Object.assign(state.config.billing_limits, limits);
