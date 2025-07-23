@@ -1,0 +1,381 @@
+name: Release Management
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Type of release'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - prerelease
+      prerelease_tag:
+        description: 'Prerelease tag (alpha, beta, rc)'
+        required: false
+        default: 'rc'
+        type: choice
+        options:
+          - alpha
+          - beta
+          - rc
+      skip_tests:
+        description: 'Skip tests (for emergency releases only)'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  validate-release:
+    name: Validate Release Readiness
+    runs-on: ubuntu-latest
+    if: ${{ !inputs.skip_tests }}
+    
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+        
+    - name: Cache dependencies
+      uses: Swatinem/rust-cache@v2
+      
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libgtk-3-dev \
+          libwebkit2gtk-4.0-dev \
+          libayatana-appindicator3-dev \
+          librsvg2-dev \
+          libssl-dev \
+          libsqlite3-dev \
+          pkg-config
+          
+    - name: Run full test suite
+      run: |
+        cargo test --all-features --verbose
+        
+    - name: Run security audit
+      run: |
+        cargo install cargo-audit
+        cargo audit
+        
+    - name: Check code quality
+      run: |
+        cargo fmt --all -- --check
+        cargo clippy --all-targets --all-features -- -D warnings
+        
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        
+    - name: Test frontend build
+      run: |
+        npm ci
+        npm run build
+        
+    - name: Calculate next version
+      id: version
+      run: |
+        # Install semver tool
+        npm install -g semver
+        
+        # Get current version from Cargo.toml
+        current_version=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+        echo "Current version: $current_version"
+        
+        # Calculate next version based on release type
+        if [ "${{ inputs.release_type }}" = "prerelease" ]; then
+          next_version=$(semver -i prerelease --preid ${{ inputs.prerelease_tag }} $current_version)
+        else
+          next_version=$(semver -i ${{ inputs.release_type }} $current_version)
+        fi
+        
+        echo "Next version: $next_version"
+        echo "version=$next_version" >> $GITHUB_OUTPUT
+        
+    - name: Check changelog
+      run: |
+        if [ ! -f CHANGELOG.md ]; then
+          echo "❌ CHANGELOG.md not found"
+          exit 1
+        fi
+        
+        # Check if changelog has been updated for this version
+        if ! grep -q "${{ steps.version.outputs.version }}" CHANGELOG.md; then
+          echo "⚠️ CHANGELOG.md may need updating for version ${{ steps.version.outputs.version }}"
+        fi
+
+  create-release:
+    name: Create Release
+    needs: [validate-release]
+    runs-on: ubuntu-latest
+    if: ${{ always() && (needs.validate-release.result == 'success' || inputs.skip_tests) }}
+    
+    outputs:
+      version: ${{ steps.version.outputs.version || inputs.manual_version }}
+      release_id: ${{ steps.create_release.outputs.id }}
+      
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Setup Git
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        
+    - name: Set version
+      id: version
+      run: |
+        if [ "${{ inputs.skip_tests }}" = "true" ]; then
+          # For emergency releases, use current version + patch
+          current_version=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          npm install -g semver
+          next_version=$(semver -i patch $current_version)
+          echo "Emergency release version: $next_version"
+        else
+          next_version="${{ needs.validate-release.outputs.version }}"
+        fi
+        echo "version=$next_version" >> $GITHUB_OUTPUT
+        
+    - name: Update version in files
+      run: |
+        VERSION="${{ steps.version.outputs.version }}"
+        
+        # Update Cargo.toml
+        sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+        
+        # Update package.json
+        if [ -f package.json ]; then
+          sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" package.json
+        fi
+        
+        # Update tauri.conf.json
+        if [ -f tauri.conf.json ]; then
+          sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" tauri.conf.json
+        fi
+        
+        # Update any other version references
+        find src/ -name "*.rs" -type f -exec sed -i "s/VERSION = \".*\"/VERSION = \"$VERSION\"/" {} \; || true
+        
+    - name: Generate changelog entry
+      id: changelog
+      run: |
+        VERSION="${{ steps.version.outputs.version }}"
+        DATE=$(date +%Y-%m-%d)
+        
+        # Create or update CHANGELOG.md
+        if [ ! -f CHANGELOG.md ]; then
+          echo "# Changelog" > CHANGELOG.md
+          echo "" >> CHANGELOG.md
+        fi
+        
+        # Prepare changelog entry
+        CHANGELOG_ENTRY="## [$VERSION] - $DATE
+
+### Added
+- New features and enhancements
+
+### Changed  
+- Updates and modifications
+
+### Fixed
+- Bug fixes and improvements
+
+### Security
+- Security updates and patches
+
+"
+        
+        # Insert new entry at the top (after # Changelog)
+        if grep -q "# Changelog" CHANGELOG.md; then
+          sed -i "/# Changelog/a\\
+\\
+$CHANGELOG_ENTRY" CHANGELOG.md
+        else
+          echo -e "# Changelog\n\n$CHANGELOG_ENTRY$(cat CHANGELOG.md)" > CHANGELOG.md
+        fi
+        
+        # Extract release notes (content between this version and next)
+        awk "/## \[$VERSION\]/,/## \[.*\]/{if(/## \[.*\]/ && !/## \[$VERSION\]/) exit; print}" CHANGELOG.md | head -n -1 > release-notes.md
+        
+    - name: Commit version changes
+      run: |
+        VERSION="${{ steps.version.outputs.version }}"
+        
+        git add .
+        git commit -m "chore: bump version to $VERSION"
+        git tag -a "v$VERSION" -m "Release version $VERSION"
+        
+    - name: Push changes
+      run: |
+        git push origin main
+        git push origin --tags
+        
+    - name: Create GitHub Release
+      id: create_release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v${{ steps.version.outputs.version }}
+        name: Release ${{ steps.version.outputs.version }}
+        body_path: release-notes.md
+        draft: true
+        prerelease: ${{ inputs.release_type == 'prerelease' }}
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-release-assets:
+    name: Build Release Assets
+    needs: [create-release]
+    uses: ./.github/workflows/ci.yml
+    with:
+      release_id: ${{ needs.create-release.outputs.release_id }}
+    secrets: inherit
+
+  publish-release:
+    name: Publish Release
+    needs: [create-release, build-release-assets]
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Publish GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v${{ needs.create-release.outputs.version }}
+        draft: false
+        make_latest: ${{ inputs.release_type != 'prerelease' }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Update release channels
+      run: |
+        VERSION="${{ needs.create-release.outputs.version }}"
+        
+        # Create update manifests for auto-updater
+        mkdir -p update-manifests
+        
+        # Generate update manifest
+        cat > update-manifests/latest.json << EOF
+        {
+          "version": "$VERSION",
+          "notes": "See GitHub releases for detailed changelog",
+          "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+          "platforms": {
+            "linux-x86_64": {
+              "signature": "",
+              "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/valechat_${VERSION}_amd64.AppImage"
+            },
+            "darwin-x86_64": {
+              "signature": "",
+              "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/ValeChat_${VERSION}_x64.dmg"
+            },
+            "darwin-aarch64": {
+              "signature": "",
+              "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/ValeChat_${VERSION}_aarch64.dmg"
+            },
+            "windows-x86_64": {
+              "signature": "",
+              "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/ValeChat_${VERSION}_x64_en-US.msi"
+            }
+          }
+        }
+        EOF
+        
+        # Create channel-specific manifests
+        if [ "${{ inputs.release_type }}" = "prerelease" ]; then
+          cp update-manifests/latest.json update-manifests/${{ inputs.prerelease_tag }}.json
+        else
+          cp update-manifests/latest.json update-manifests/stable.json
+        fi
+        
+    - name: Deploy update manifests
+      run: |
+        # In a real scenario, you would deploy these to your update server
+        # For now, we'll just upload them as artifacts
+        echo "Update manifests would be deployed to update server here"
+        
+    - name: Upload update manifests
+      uses: actions/upload-artifact@v4
+      with:
+        name: update-manifests
+        path: update-manifests/
+        retention-days: 365
+
+  notify-release:
+    name: Notify Release
+    needs: [create-release, build-release-assets, publish-release]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - name: Notify success
+      if: needs.publish-release.result == 'success'
+      run: |
+        echo "🎉 Release ${{ needs.create-release.outputs.version }} published successfully!"
+        echo "📦 Release URL: https://github.com/${{ github.repository }}/releases/tag/v${{ needs.create-release.outputs.version }}"
+        
+    - name: Notify failure
+      if: failure()
+      run: |
+        echo "❌ Release process failed!"
+        echo "Please check the workflow logs and try again."
+        exit 1
+
+  post-release:
+    name: Post-Release Tasks
+    needs: [create-release, publish-release]
+    runs-on: ubuntu-latest
+    if: needs.publish-release.result == 'success' && inputs.release_type != 'prerelease'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Create next development version
+      run: |
+        # Bump to next development version
+        current_version="${{ needs.create-release.outputs.version }}"
+        npm install -g semver
+        next_dev_version=$(semver -i patch $current_version)-dev
+        
+        # Update version files
+        sed -i "s/^version = \".*\"/version = \"$next_dev_version\"/" Cargo.toml
+        
+        # Commit development version
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        
+        git add Cargo.toml
+        git commit -m "chore: bump to next development version $next_dev_version"
+        git push origin main
+        
+    - name: Update documentation
+      run: |
+        echo "📚 Documentation updates would be triggered here"
+        # In a real scenario, trigger documentation builds/updates
