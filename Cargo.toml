@@ -9,11 +9,11 @@ repository = "https://github.com/valechat/valechat"
 license = "Apache-2.0"
 
 [dependencies]
-# UI Framework - Cross-platform compatible (temporarily disabled for Phase 1 testing)
-# tauri = { version = "2.0", features = ["tray-icon"] }
-# tauri-plugin-store = "2.0"
-# tauri-plugin-dialog = "2.0"
-# tauri-plugin-notification = "2.0"
+# UI Framework - Cross-platform compatible
+tauri = { version = "2.0", features = [ "protocol-asset", "tray-icon"] }
+tauri-plugin-store = "2.0"
+tauri-plugin-dialog = "2.0"
+tauri-plugin-notification = "2.0"
 
 # Async Runtime
 tokio = { version = "1.0", features = ["full"] }
@@ -92,5 +92,5 @@ nix = { version = "0.27", features = ["process", "signal"] }
 # Windows-specific dependencies
 windows = { version = "0.52", features = ["Win32_System_Threading"] }
 
-# [build-dependencies]
-# tauri-build = { version = "2.0" }
+[build-dependencies]
+tauri-build = { version = "2.0" }

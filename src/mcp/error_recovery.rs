@@ -279,36 +279,42 @@ impl MCPErrorRecovery {
 
     /// Set circuit breaker state
     async fn set_circuit_breaker_state(&self, server_name: &str, state: CircuitBreakerState) {
-        let mut circuit_breakers = self.circuit_breakers.write().await;
-        if let Some(cb) = circuit_breakers.get_mut(server_name) {
-            cb.state = state.clone();
-            
-            // Reset counters when moving to different states
-            match state {
-                CircuitBreakerState::Closed => {
-                    cb.failure_count = 0;
-                    cb.success_count = 0;
-                }
-                CircuitBreakerState::Open => {
-                    cb.last_failure_time = Some(Instant::now());
-                    
-                    // Update stats
-                    let stats_handle = Arc::clone(&self.stats);
-                    drop(circuit_breakers);
-                    let mut stats = stats_handle.write().await;
-                    stats.circuit_breaker_trips += 1;
-                }
-                CircuitBreakerState::HalfOpen => {
-                    cb.success_count = 0;
+        let state_clone = state.clone();
+        let mut circuit_breakers_dropped = false;
+        
+        {
+            let mut circuit_breakers = self.circuit_breakers.write().await;
+            if let Some(cb) = circuit_breakers.get_mut(server_name) {
+                cb.state = state.clone();
+                
+                // Reset counters when moving to different states
+                match state {
+                    CircuitBreakerState::Closed => {
+                        cb.failure_count = 0;
+                        cb.success_count = 0;
+                    }
+                    CircuitBreakerState::Open => {
+                        cb.last_failure_time = Some(Instant::now());
+                        
+                        // Update global stats - need to drop circuit_breakers first
+                        drop(circuit_breakers);
+                        circuit_breakers_dropped = true;
+                        
+                        let mut stats = self.stats.write().await;
+                        stats.circuit_breaker_trips += 1;
+                    }
+                    CircuitBreakerState::HalfOpen => {
+                        cb.success_count = 0;
+                    }
                 }
             }
-            
-            // Update server stats  
-            let stats_handle = Arc::clone(&self.stats);
-            drop(circuit_breakers);
-            let mut stats = stats_handle.write().await;
+        }
+        
+        // Update server stats if we haven't already dropped circuit_breakers
+        if !circuit_breakers_dropped {
+            let mut stats = self.stats.write().await;
             if let Some(server_stats) = stats.operations_by_server.get_mut(server_name) {
-                server_stats.circuit_breaker_state = state;
+                server_stats.circuit_breaker_state = state_clone;
             }
         }
     }

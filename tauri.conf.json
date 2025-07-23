@@ -6,8 +6,7 @@
     "beforeBuildCommand": "npm run build",
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:5173",
-    "frontendDist": "../dist",
-    "withGlobalTauri": false
+    "frontendDist": "./dist"
   },
   "app": {
     "security": {
@@ -38,70 +37,14 @@
         "alwaysOnTop": false,
         "contentProtected": false,
         "skipTaskbar": false,
-        "theme": "Auto",
         "titleBarStyle": "Visible"
       }
-    ],
-    "trayIcon": {
-      "iconPath": "icons/icon.png",
-      "iconAsTemplate": true,
-      "menuOnLeftClick": false,
-      "tooltip": "ValeChat - Multi-Model AI Chat"
-    }
+    ]
   },
   "bundle": {
     "active": true,
-    "category": "Developer Tool",
+    "category": "DeveloperTool",
     "copyright": "Copyright © 2024 ValeChat",
-    "deb": {
-      "depends": [
-        "libwebkit2gtk-4.0-37",
-        "libgtk-3-0",
-        "libayatana-appindicator3-1"
-      ],
-      "section": "utils",
-      "priority": "optional",
-      "changelog": "See https://github.com/valechat/valechat/releases for changelog"
-    },
-    "dmg": {
-      "appPosition": {
-        "x": 180,
-        "y": 170
-      },
-      "applicationFolderPosition": {
-        "x": 480,
-        "y": 170
-      },
-      "windowSize": {
-        "width": 660,
-        "height": 400
-      }
-    },
-    "appimage": {
-      "bundleMediaFramework": false
-    },
-    "rpm": {
-      "epoch": 0,
-      "release": "1",
-      "section": "Applications/Internet",
-      "requires": [
-        "webkit2gtk3",
-        "gtk3",
-        "libappindicator-gtk3"
-      ]
-    },
-    "nsis": {
-      "displayLanguageSelector": true,
-      "installerIcon": "icons/icon.ico", 
-      "installMode": "currentUser",
-      "languages": ["English"],
-      "template": "installer.nsi"
-    },
-    "windows": {
-      "certificateThumbprint": null,
-      "digestAlgorithm": "sha256",
-      "timestampUrl": "http://timestamp.sectigo.com"
-    },
     "longDescription": "ValeChat is a cross-platform desktop application that provides access to multiple AI models with local MCP server support, expense tracking, and native experience across Linux, macOS, and Windows.",
     "shortDescription": "Multi-model AI chat application with MCP server support",
     "icon": [
@@ -111,22 +54,64 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "identifier": "ai.valechat.app",
     "targets": "all",
     "externalBin": [],
-    "resources": [
-      "resources/*"
-    ]
-  },
-  "updater": {
-    "active": true,
-    "endpoints": [
-      "https://api.github.com/repos/valechat/valechat/releases/latest"
-    ],
-    "dialog": true,
-    "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IFZhbGVDaGF0IFB1YmxpYSBLZXkKUldROU10eTIxc2JIMmQyQUhnbXNFOW1nK2NtSVVYdXFqL3VwNUhJWUc0VWFXQjVSMnE5WWt6T3JZRW9OUUVLK3JqRFJFdUhBPQo="
+    "resources": [],
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.0-37",
+          "libgtk-3-0",
+          "libayatana-appindicator3-1"
+        ],
+        "section": "utils",
+        "priority": "optional"
+      },
+      "appimage": {
+        "bundleMediaFramework": false
+      },
+      "rpm": {
+        "epoch": 0,
+        "release": "1"
+      }
+    },
+    "macOS": {
+      "dmg": {
+        "appPosition": {
+          "x": 180,
+          "y": 170
+        },
+        "applicationFolderPosition": {
+          "x": 480,
+          "y": 170
+        },
+        "windowSize": {
+          "width": 660,
+          "height": 400
+        }
+      }
+    },
+    "windows": {
+      "nsis": {
+        "displayLanguageSelector": true,
+        "installerIcon": "icons/icon.ico", 
+        "installMode": "currentUser",
+        "languages": ["English"],
+        "template": "installer.nsi"
+      },
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.sectigo.com"
+    }
   },
   "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://api.github.com/repos/valechat/valechat/releases/latest"
+      ],
+      "dialog": true,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IFZhbGVDaGF0IFB1YmxpYSBLZXkKUldROU10eTIxc2JIMmQyQUhnbXNFOW1nK2NtSVVYdXFqL3VwNUhJWUc0VWFXQjVSMnE5WWt6T3JZRW9OUUVLK3JqRFJFdUhBPQo="
+    },
     "shell": {
       "all": true,
       "execute": true,
@@ -184,12 +169,6 @@
     "store": {
       "all": true,
       "createStore": true
-    },
-    "updater": {
-      "all": true,
-      "check": true,
-      "download": true,
-      "install": true
     }
   }
 }

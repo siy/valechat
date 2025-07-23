@@ -1,0 +1,55 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="mainGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="accentGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f093fb;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#f5576c;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Main chat bubble -->
+  <path d="M20 25 C20 18 25 13 32 13 L68 13 C75 13 80 18 80 25 L80 50 C80 57 75 62 68 62 L40 62 L25 75 L25 62 C22 62 20 59 20 56 Z" 
+        fill="url(#mainGradient)" 
+        stroke="none"/>
+  
+  <!-- AI neural network nodes -->
+  <circle cx="35" cy="30" r="3" fill="white" opacity="0.9"/>
+  <circle cx="50" cy="25" r="3" fill="white" opacity="0.9"/>
+  <circle cx="65" cy="30" r="3" fill="white" opacity="0.9"/>
+  <circle cx="42" cy="42" r="3" fill="white" opacity="0.9"/>
+  <circle cx="58" cy="42" r="3" fill="white" opacity="0.9"/>
+  
+  <!-- Neural connections -->
+  <line x1="35" y1="30" x2="50" y2="25" stroke="white" stroke-width="1.5" opacity="0.6"/>
+  <line x1="50" y1="25" x2="65" y2="30" stroke="white" stroke-width="1.5" opacity="0.6"/>
+  <line x1="35" y1="30" x2="42" y2="42" stroke="white" stroke-width="1.5" opacity="0.6"/>
+  <line x1="50" y1="25" x2="42" y2="42" stroke="white" stroke-width="1.5" opacity="0.6"/>
+  <line x1="50" y1="25" x2="58" y2="42" stroke="white" stroke-width="1.5" opacity="0.6"/>
+  <line x1="65" y1="30" x2="58" y2="42" stroke="white" stroke-width="1.5" opacity="0.6"/>
+  <line x1="42" y1="42" x2="58" y2="42" stroke="white" stroke-width="1.5" opacity="0.6"/>
+  
+  <!-- Multimodal indicators -->
+  <!-- Text/Chat symbol -->
+  <rect x="28" y="50" width="8" height="1.5" rx="0.5" fill="white" opacity="0.8"/>
+  <rect x="28" y="53" width="12" height="1.5" rx="0.5" fill="white" opacity="0.8"/>
+  
+  <!-- Image/Visual symbol -->
+  <rect x="45" y="49" width="10" height="7" rx="1" fill="none" stroke="white" stroke-width="1.2" opacity="0.8"/>
+  <circle cx="47.5" cy="52" r="1" fill="white" opacity="0.8"/>
+  <path d="M47 55 L49 53 L52 56 L55 52" fill="none" stroke="white" stroke-width="1" opacity="0.8"/>
+  
+  <!-- Audio/Voice symbol -->
+  <path d="M60 50 C62 51 62 55 60 56 M62 48 C65 49.5 65 56.5 62 58" 
+        fill="none" stroke="white" stroke-width="1.5" opacity="0.8" stroke-linecap="round"/>
+  <rect x="57" y="51.5" width="2" height="3" rx="1" fill="white" opacity="0.8"/>
+  
+  <!-- Accent elements for modern tech feel -->
+  <circle cx="85" cy="20" r="8" fill="url(#accentGradient)" opacity="0.3"/>
+  <circle cx="15" cy="80" r="6" fill="url(#accentGradient)" opacity="0.2"/>
+  
+  <!-- Subtle "V" for Vale -->
+  <path d="M22 20 L26 28 L30 20" fill="none" stroke="url(#accentGradient)" stroke-width="2" opacity="0.4" stroke-linecap="round"/>
+</svg>
