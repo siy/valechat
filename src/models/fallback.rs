@@ -1,11 +1,10 @@
-use async_trait::async_trait;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tracing::{debug, info, warn, error};
 use tokio::time::timeout;
 
 use crate::error::{Error, Result};
-use crate::models::capability_detection::{CapabilityDetector, ModelRecommendation, QualityPriority, TaskRequirements, TaskType};
+use crate::models::capability_detection::{CapabilityDetector, QualityPriority, TaskRequirements, TaskType};
 use crate::models::provider::{ChatRequest, ChatResponse, ModelProvider};
 
 #[derive(Debug, Clone)]

@@ -13,6 +13,7 @@ use crate::models::{
     Message, MessageRole, TokenUsage, PricingInfo, ModelCapabilities, 
     HealthStatus, RateLimits
 };
+use uuid;
 use crate::models::circuit_breaker::CircuitBreaker;
 
 pub struct OpenAIProvider {
@@ -20,6 +21,7 @@ pub struct OpenAIProvider {
     api_key: String,
     base_url: String,
     circuit_breaker: CircuitBreaker,
+    #[allow(dead_code)]
     timeout: Duration,
 }
 
@@ -148,9 +150,38 @@ impl ModelProvider for OpenAIProvider {
         })
     }
 
-    async fn stream_message(&self, _request: ChatRequest) -> Result<Box<dyn ChatStream>> {
-        // TODO: Implement streaming in Phase 2
-        Err(Error::model_provider("Streaming not yet implemented"))
+    async fn stream_message(&self, request: ChatRequest) -> Result<Box<dyn ChatStream>> {
+        let url = format!("{}/v1/chat/completions", self.base_url);
+        let headers = self.create_headers()?;
+        
+        let openai_request = OpenAIRequest {
+            model: request.model.clone(),
+            messages: self.convert_messages(&request.messages),
+            temperature: request.temperature,
+            max_tokens: request.max_tokens,
+            stream: Some(true), // Enable streaming
+            user: request.user_id.clone(),
+        };
+
+        debug!("Starting streaming request to OpenAI: model={}, messages={}", 
+               request.model, request.messages.len());
+
+        let response = self.client
+            .post(&url)
+            .headers(headers)
+            .json(&openai_request)
+            .send()
+            .await
+            .map_err(|e| Error::model_provider(format!("HTTP request failed: {}", e)))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_body = response.text().await.unwrap_or_default();
+            return Err(Error::model_provider(format!("OpenAI API error {}: {}", status, error_body)));
+        }
+
+        let stream = OpenAIStream::new(response).await?;
+        Ok(Box::new(stream))
     }
 
     fn get_pricing(&self) -> Option<PricingInfo> {
@@ -238,6 +269,7 @@ struct OpenAIRequest {
 
 #[derive(Debug, Serialize)]
 struct OpenAIMessage {
+    #[allow(dead_code)]
     role: String,
     content: String,
 }
@@ -254,6 +286,7 @@ struct OpenAIResponse {
 
 #[derive(Debug, Deserialize)]
 struct OpenAIChoice {
+    #[allow(dead_code)]
     index: u32,
     message: OpenAIResponseMessage,
     finish_reason: Option<String>,
@@ -261,6 +294,7 @@ struct OpenAIChoice {
 
 #[derive(Debug, Deserialize)]
 struct OpenAIResponseMessage {
+    #[allow(dead_code)]
     role: String,
     content: String,
 }
@@ -270,6 +304,152 @@ struct OpenAIUsage {
     prompt_tokens: u32,
     completion_tokens: u32,
     total_tokens: u32,
+}
+
+// Streaming response structures
+#[derive(Debug, Deserialize)]
+struct OpenAIStreamResponse {
+    id: String,
+    choices: Vec<OpenAIStreamChoice>,
+    #[serde(default)]
+    usage: Option<OpenAIUsage>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIStreamChoice {
+    #[allow(dead_code)]
+    index: u32,
+    delta: OpenAIStreamDelta,
+    finish_reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct OpenAIStreamDelta {
+    content: Option<String>,
+    role: Option<String>,
+}
+
+pub struct OpenAIStream {
+    response: reqwest::Response,
+    buffer: String,
+    finished: bool,
+    #[allow(dead_code)]
+    current_id: String,
+}
+
+impl OpenAIStream {
+    pub async fn new(response: reqwest::Response) -> Result<Self> {
+        Ok(Self {
+            response,
+            buffer: String::new(),
+            finished: false,
+            current_id: uuid::Uuid::new_v4().to_string(),
+        })
+    }
+
+    async fn read_next_line(&mut self) -> Result<Option<String>> {
+        if self.finished {
+            return Ok(None);
+        }
+
+        // Read more data from the response
+        while !self.buffer.contains('\n') {
+            let chunk = match self.response.chunk().await {
+                Ok(Some(chunk)) => chunk,
+                Ok(None) => {
+                    self.finished = true;
+                    if self.buffer.is_empty() {
+                        return Ok(None);
+                    }
+                    let line = self.buffer.clone();
+                    self.buffer.clear();
+                    return Ok(Some(line));
+                }
+                Err(e) => {
+                    return Err(Error::model_provider(format!("Stream read error: {}", e)));
+                }
+            };
+
+            match std::str::from_utf8(&chunk) {
+                Ok(text) => self.buffer.push_str(text),
+                Err(e) => {
+                    return Err(Error::model_provider(format!("Invalid UTF-8 in stream: {}", e)));
+                }
+            }
+        }
+
+        if let Some(newline_pos) = self.buffer.find('\n') {
+            let line = self.buffer[..newline_pos].to_string();
+            self.buffer = self.buffer[newline_pos + 1..].to_string();
+            Ok(Some(line))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+#[async_trait]
+impl ChatStream for OpenAIStream {
+    async fn next_chunk(&mut self) -> Result<Option<crate::models::provider::StreamChunk>> {
+        loop {
+            match self.read_next_line().await? {
+                Some(line) => {
+                    let line = line.trim();
+                    
+                    // Skip empty lines and comments
+                    if line.is_empty() || line.starts_with(':') {
+                        continue;
+                    }
+                    
+                    // Handle server-sent events format
+                    if let Some(data) = line.strip_prefix("data: ") {
+                        // Check for end of stream
+                        if data == "[DONE]" {
+                            return Ok(None);
+                        }
+                        
+                        // Parse JSON response
+                        match serde_json::from_str::<OpenAIStreamResponse>(data) {
+                            Ok(stream_response) => {
+                                if let Some(choice) = stream_response.choices.first() {
+                                    if let Some(content) = &choice.delta.content {
+                                        return Ok(Some(crate::models::provider::StreamChunk {
+                                            id: stream_response.id,
+                                            delta: content.clone(),
+                                            finish_reason: choice.finish_reason.clone(),
+                                            usage: stream_response.usage.map(|u| TokenUsage {
+                                                input_tokens: u.prompt_tokens,
+                                                output_tokens: u.completion_tokens,
+                                                total_tokens: u.total_tokens,
+                                            }),
+                                        }));
+                                    } else if choice.finish_reason.is_some() {
+                                        // End of generation, return empty chunk with finish reason
+                                        return Ok(Some(crate::models::provider::StreamChunk {
+                                            id: stream_response.id,
+                                            delta: String::new(),
+                                            finish_reason: choice.finish_reason.clone(),
+                                            usage: stream_response.usage.map(|u| TokenUsage {
+                                                input_tokens: u.prompt_tokens,
+                                                output_tokens: u.completion_tokens,
+                                                total_tokens: u.total_tokens,
+                                            }),
+                                        }));
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                debug!("Failed to parse stream response: {} (data: {})", e, data);
+                                continue;
+                            }
+                        }
+                    }
+                }
+                None => return Ok(None),
+            }
+        }
+    }
 }
 
 #[cfg(test)]

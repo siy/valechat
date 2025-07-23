@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use sqlx::{SqlitePool, Row};
-use tracing::{debug, info, warn, error};
+use tracing::{debug, info, warn};
 use rust_decimal::Decimal;
 use chrono::{DateTime, Utc, Datelike};
 use serde::{Serialize, Deserialize};
@@ -312,18 +312,14 @@ impl UsageRepository {
             "#
         );
 
-        let mut bind_count = 0;
         if start_time.is_some() {
             query.push_str(" AND timestamp >= ?");
-            bind_count += 1;
         }
         if end_time.is_some() {
             query.push_str(" AND timestamp <= ?");
-            bind_count += 1;
         }
         if provider.is_some() {
             query.push_str(" AND provider = ?");
-            bind_count += 1;
         }
 
         query.push_str(" ORDER BY timestamp DESC");
@@ -625,6 +621,67 @@ impl UsageRepository {
 
         debug!("Retrieved {} unverified records", records.len());
         Ok(records)
+    }
+
+    /// Get daily usage statistics for today
+    pub async fn get_daily_statistics(&self) -> Result<(Decimal, u64)> {
+        debug!("Getting daily usage statistics");
+
+        let today = Utc::now().date_naive();
+        let start_of_day = today.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp();
+        let end_of_day = today.and_hms_opt(23, 59, 59).unwrap().and_utc().timestamp();
+
+        let row = sqlx::query(
+            r#"
+            SELECT 
+                COALESCE(SUM(CAST(cost AS REAL)), 0.0) as daily_cost,
+                COALESCE(SUM(input_tokens + output_tokens), 0) as daily_tokens
+            FROM usage_records 
+            WHERE timestamp >= ? AND timestamp <= ?
+            "#
+        )
+        .bind(start_of_day)
+        .bind(end_of_day)
+        .fetch_one(&self.pool)
+        .await?;
+
+        let daily_cost: f64 = row.get("daily_cost");
+        let daily_tokens: i64 = row.get("daily_tokens");
+
+        Ok((Decimal::from_f64_retain(daily_cost).unwrap_or(Decimal::ZERO), daily_tokens as u64))
+    }
+
+    /// Get cost trend data for the last N days
+    pub async fn get_cost_trend(&self, days: u32) -> Result<Vec<(String, Decimal)>> {
+        debug!("Getting cost trend for last {} days", days);
+
+        let days_ago = Utc::now() - chrono::Duration::days(days as i64);
+        let start_timestamp = days_ago.timestamp();
+
+        let rows = sqlx::query(
+            r#"
+            SELECT 
+                date(timestamp, 'unixepoch') as date,
+                SUM(CAST(cost AS REAL)) as daily_cost
+            FROM usage_records 
+            WHERE timestamp >= ?
+            GROUP BY date(timestamp, 'unixepoch')
+            ORDER BY date
+            "#
+        )
+        .bind(start_timestamp)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut trend_data = Vec::new();
+        for row in rows {
+            let date: String = row.get("date");
+            let daily_cost: f64 = row.get("daily_cost");
+            trend_data.push((date, Decimal::from_f64_retain(daily_cost).unwrap_or(Decimal::ZERO)));
+        }
+
+        debug!("Retrieved {} days of cost trend data", trend_data.len());
+        Ok(trend_data)
     }
 
     /// Delete old usage records for cleanup (keeps summaries)

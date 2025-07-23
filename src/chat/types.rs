@@ -1,10 +1,9 @@
 use std::collections::HashMap;
-use std::time::{Duration, SystemTime};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::error::{Error, Result};
+use crate::error::Error;
 
 /// Represents a single chat message
 #[derive(Debug, Clone, Serialize, Deserialize)]

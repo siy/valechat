@@ -1,17 +1,17 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 use tokio::time::interval;
 use tracing::{debug, error, info, warn};
 
 use crate::error::{Error, Result};
-use crate::mcp::transport::{Transport, StdioTransport, TransportStatus, SandboxConfig};
+use crate::mcp::transport::{Transport, StdioTransport, TransportStatus};
 use crate::mcp::types::{
     ServerCapabilities, Tool, Resource, Prompt, InitializeParams, InitializeResult,
     ClientCapabilities, Implementation, ProtocolVersion, SamplingCapability
 };
-use crate::mcp::protocol::{ProtocolHandler, JsonRpcRequest, JsonRpcResponse, JsonRpcError};
+use crate::mcp::protocol::{ProtocolHandler, JsonRpcError};
 use crate::app::config::MCPServerConfig;
 
 /// Represents the lifecycle state of an MCP server
@@ -60,6 +60,7 @@ pub struct MCPServerInstance {
     tools: Arc<RwLock<Vec<Tool>>>,
     resources: Arc<RwLock<Vec<Resource>>>,
     prompts: Arc<RwLock<Vec<Prompt>>>,
+    #[allow(dead_code)]
     last_activity: Arc<RwLock<Instant>>,
 }
 

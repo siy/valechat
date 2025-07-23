@@ -9,8 +9,8 @@ use tokio::time::{timeout, Duration};
 use tracing::{debug, error, info, warn};
 
 use crate::error::{Error, Result};
-use crate::mcp::protocol::{ProtocolMessage, JsonRpcRequest, JsonRpcResponse};
-use crate::platform::{SandboxedProcess, ProcessConfig, ResourceLimits};
+use crate::mcp::protocol::ProtocolMessage;
+use crate::platform::{ProcessConfig, ResourceLimits};
 
 /// Transport layer abstraction for MCP communication
 #[async_trait]

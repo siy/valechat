@@ -1,8 +1,6 @@
 use std::path::Path;
-use sqlx::{SqlitePool, Row, migrate::MigrateDatabase};
+use sqlx::{SqlitePool, migrate::MigrateDatabase};
 use tracing::{info, debug, error, warn};
-use rust_decimal::Decimal;
-use chrono::{DateTime, Utc};
 
 use crate::error::{Error, Result};
 use crate::platform::AppPaths;

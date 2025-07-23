@@ -7,7 +7,7 @@ use serde::{Serialize, Deserialize};
 
 use crate::error::{Error, Result};
 use crate::storage::database::decimal_helpers;
-use crate::storage::usage::{UsageRepository, UsageRecord, BillingSummary};
+use crate::storage::usage::{UsageRepository, UsageRecord};
 
 /// Billing management system with cost verification and spending limits
 pub struct BillingSystem {
@@ -458,7 +458,7 @@ impl BillingSystem {
         .fetch_all(&self.pool)
         .await?;
 
-        for (key, value) in settings {
+        for (_, value) in settings {
             if let Ok(limit) = serde_json::from_str::<SpendingLimit>(&value) {
                 // Calculate current spending based on limit type
                 let current_spending = match &limit.limit_type {

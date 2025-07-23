@@ -1,9 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
-use chrono::{DateTime, Utc};
 
-use crate::mcp::protocol::{JsonRpcRequest, JsonRpcResponse};
+use crate::mcp::protocol::JsonRpcRequest;
 
 /// MCP protocol version
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

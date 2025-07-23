@@ -123,10 +123,66 @@ impl AppState {
     pub async fn validate_provider_credentials(&self, provider: &str) -> Result<bool> {
         match self.get_api_key(provider).await? {
             Some(api_key) if !api_key.is_empty() => {
-                // TODO: In Phase 2, we'll add actual credential validation
-                // by making a test request to the provider
-                debug!("API key found for provider: {}", provider);
-                Ok(true)
+                debug!("API key found for provider: {}, performing health check", provider);
+                
+                // Create a provider instance and test the credentials
+                let provider_result = match provider {
+                    "openai" => {
+                        match crate::models::OpenAIProvider::new(api_key) {
+                            Ok(provider) => Some(Box::new(provider) as Box<dyn crate::models::provider::ModelProvider>),
+                            Err(e) => {
+                                debug!("Failed to create OpenAI provider: {}", e);
+                                None
+                            }
+                        }
+                    }
+                    "anthropic" => {
+                        match crate::models::AnthropicProvider::new(api_key) {
+                            Ok(provider) => Some(Box::new(provider) as Box<dyn crate::models::provider::ModelProvider>),
+                            Err(e) => {
+                                debug!("Failed to create Anthropic provider: {}", e);
+                                None
+                            }
+                        }
+                    }
+                    "gemini" => {
+                        match crate::models::GeminiProvider::new(api_key) {
+                            Ok(provider) => Some(Box::new(provider) as Box<dyn crate::models::provider::ModelProvider>),
+                            Err(e) => {
+                                debug!("Failed to create Gemini provider: {}", e);
+                                None
+                            }
+                        }
+                    }
+                    _ => {
+                        debug!("Unknown provider: {}", provider);
+                        None
+                    }
+                };
+
+                if let Some(provider_instance) = provider_result {
+                    // Perform health check to validate credentials
+                    match provider_instance.health_check().await {
+                        Ok(health_status) => {
+                            if health_status.is_healthy {
+                                debug!("Credentials valid for provider: {} (response time: {:?}ms)", 
+                                       provider, health_status.response_time_ms);
+                                Ok(true)
+                            } else {
+                                debug!("Credentials invalid for provider: {} (error: {:?})", 
+                                       provider, health_status.error_message);
+                                Ok(false)
+                            }
+                        }
+                        Err(e) => {
+                            debug!("Health check failed for provider: {} (error: {})", provider, e);
+                            Ok(false)
+                        }
+                    }
+                } else {
+                    debug!("Failed to create provider instance for: {}", provider);
+                    Ok(false)
+                }
             }
             _ => {
                 debug!("No API key found for provider: {}", provider);

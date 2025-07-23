@@ -239,7 +239,7 @@ impl ResourceManager {
     }
 
     /// Subscribe to resource changes
-    pub async fn subscribe_to_resource(&self, uri: &str, callback: Arc<dyn Fn(ResourceUpdateEvent) + Send + Sync>) -> Result<()> {
+    pub async fn subscribe_to_resource(&self, uri: &str, _callback: Arc<dyn Fn(ResourceUpdateEvent) + Send + Sync>) -> Result<()> {
         if !self.config.enable_subscriptions {
             return Err(Error::mcp("Resource subscriptions are disabled".to_string()));
         }
@@ -255,7 +255,7 @@ impl ResourceManager {
         if let Some(server_name) = server_name {
             // Subscribe through the MCP client
             let clients = self.clients.read().await;
-            if let Some(client) = clients.get(&server_name) {
+            if let Some(_client) = clients.get(&server_name) {
                 // TODO: Implement subscription through MCP protocol
                 // For now, we'll mark the resource as subscribed
                 drop(clients);

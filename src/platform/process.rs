@@ -48,6 +48,7 @@ impl Default for ResourceLimits {
 pub struct SandboxedProcess {
     pub id: u32,
     child: Child,
+    #[allow(dead_code)]
     config: ProcessConfig,
     start_time: std::time::Instant,
 }

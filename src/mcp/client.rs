@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{mpsc, oneshot, Mutex, RwLock};
+use tokio::sync::{oneshot, Mutex, RwLock};
 use tokio::time::timeout;
 use tracing::{debug, info, warn};
 
@@ -22,6 +22,7 @@ pub struct MCPClient {
 
 /// Represents a pending request waiting for response
 #[derive(Debug)]
+#[allow(dead_code)]
 struct PendingRequest {
     request_id: String,
     server_name: String,

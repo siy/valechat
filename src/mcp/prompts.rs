@@ -157,7 +157,7 @@ impl PromptTemplateManager {
         let templates = self.templates.read().await;
         let mut filtered_prompts = Vec::new();
         
-        for (key, cached) in templates.iter() {
+        for (_key, cached) in templates.iter() {
             // Apply filters
             if let Some(ref q) = query {
                 if let Some(ref pattern) = q.name_pattern {
@@ -547,15 +547,15 @@ impl PromptTemplateManager {
         
         // Check for unmatched braces
         let mut brace_count = 0;
-        let mut in_variable = false;
+        let mut _in_variable = false;
         
         for (line_num, line) in text.lines().enumerate() {
-            for (char_pos, ch) in line.chars().enumerate() {
+            for (_char_pos, ch) in line.chars().enumerate() {
                 match ch {
                     '{' => {
                         brace_count += 1;
                         if brace_count == 2 {
-                            in_variable = true;
+                            _in_variable = true;
                         } else if brace_count > 2 {
                             errors.push(TemplateValidationError {
                                 message: "Too many opening braces".to_string(),
@@ -568,7 +568,7 @@ impl PromptTemplateManager {
                         if brace_count > 0 {
                             brace_count -= 1;
                             if brace_count == 0 {
-                                in_variable = false;
+                                _in_variable = false;
                             }
                         } else {
                             errors.push(TemplateValidationError {

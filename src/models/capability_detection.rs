@@ -3,9 +3,8 @@ use serde::{Deserialize, Serialize};
 use rust_decimal::Decimal;
 use tracing::{debug, info};
 
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::models::provider::{ModelProvider, ModelCapabilities, PricingInfo};
-use crate::models::{AnthropicProvider, GeminiProvider, OpenAIProvider};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskRequirements {
@@ -60,6 +59,7 @@ struct ModelPerformanceData {
     avg_response_time_ms: u64,
     success_rate: f32,
     avg_quality_score: f32,
+    #[allow(dead_code)]
     cost_effectiveness: f32,
 }
 

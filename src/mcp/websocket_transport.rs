@@ -81,7 +81,7 @@ impl WebSocketTransport {
 
         // Create channels
         let (message_tx, message_rx) = mpsc::channel::<Result<ProtocolMessage>>(100);
-        let (ws_tx, mut ws_rx) = mpsc::channel::<Message>(100);
+        let (ws_tx, ws_rx) = mpsc::channel::<Message>(100);
         let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>(1);
 
         // Create status
@@ -134,7 +134,7 @@ impl WebSocketTransport {
                         }
 
                         // Attempt to connect
-                        connection_state = ConnectionState::Connecting;
+                        let _connection_state = ConnectionState::Connecting;
                         info!("Connecting to WebSocket: {}", config.url);
 
                         match timeout(config.connection_timeout, connect_async(&config.url)).await {

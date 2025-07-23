@@ -77,11 +77,14 @@ pub struct BillingConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UIConfig {
     pub theme: String,
+    pub language: String,
     pub font_size: u8,
     pub window_width: u32,
     pub window_height: u32,
     pub show_token_counts: bool,
     pub show_cost_estimates: bool,
+    pub auto_save: bool,
+    pub streaming: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -204,11 +207,14 @@ impl Default for AppConfig {
             },
             ui: UIConfig {
                 theme: "system".to_string(), // system, light, dark
+                language: "en".to_string(),
                 font_size: 14,
                 window_width: 1200,
                 window_height: 800,
                 show_token_counts: true,
                 show_cost_estimates: true,
+                auto_save: true,
+                streaming: true,
             },
             fallback: FallbackConfig {
                 enabled: true,

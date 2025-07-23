@@ -1,15 +1,14 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use sqlx::SqlitePool;
-use tracing::{debug, info};
+use tracing::debug;
 use rust_decimal::{Decimal, prelude::ToPrimitive};
-use chrono::{DateTime, Utc, Datelike, NaiveDate, Duration};
+use chrono::{DateTime, Utc, Datelike, NaiveDate};
 use serde::{Serialize, Deserialize};
 
 use crate::error::Result;
-use crate::storage::database::decimal_helpers;
-use crate::storage::billing::{BillingSystem, BillingReport};
-use crate::storage::usage::{UsageRepository, UsageStatistics};
+use crate::storage::billing::BillingSystem;
+use crate::storage::usage::UsageRepository;
 
 /// Comprehensive billing dashboard service
 pub struct BillingDashboard {
@@ -584,7 +583,7 @@ impl BillingDashboard {
         Ok(count as u64)
     }
 
-    async fn get_most_expensive_day(&self, period: &str) -> Result<Option<DailySpend>> {
+    async fn get_most_expensive_day(&self, _period: &str) -> Result<Option<DailySpend>> {
         // This would require more complex date handling in SQL
         // For now, return None as placeholder
         Ok(None)
@@ -629,7 +628,7 @@ impl BillingDashboard {
     }
 
     /// Export dashboard data to various formats
-    pub async fn export_report(&self, format: ExportFormat, period: Option<String>) -> Result<String> {
+    pub async fn export_report(&self, format: ExportFormat, _period: Option<String>) -> Result<String> {
         let dashboard_data = self.get_dashboard_data().await?;
         
         match format {

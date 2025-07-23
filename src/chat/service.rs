@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
+use rust_decimal::prelude::ToPrimitive;
 
 use crate::app::AppState;
 use crate::chat::types::{
@@ -11,7 +12,7 @@ use crate::chat::types::{
 };
 use crate::error::{Error, Result};
 use crate::mcp::{MCPClient, MCPClientConfig, MCPServerManager};
-use crate::models::provider::{ModelProvider, Message};
+use crate::models::provider::ModelProvider;
 use crate::models::{OpenAIProvider, AnthropicProvider, GeminiProvider};
 
 /// Main chat service that coordinates AI models and MCP tools
@@ -291,20 +292,29 @@ impl ChatService {
             }
         }
 
-        // Update session in storage
-        {
-            let mut sessions = self.sessions.write().await;
-            sessions.insert(session_id.to_string(), session);
-        }
-
         let processing_time = start_time.elapsed().as_millis() as u64;
         
         // Create response
         let usage = if let Some(token_usage) = model_response.usage {
+            // Calculate cost based on provider pricing
+            let cost = {
+                let providers = self.model_providers.read().await;
+                if let Some(provider) = providers.get(&session.model_provider) {
+                    if let Some(pricing) = provider.get_pricing() {
+                        let cost_decimal = pricing.calculate_cost(&token_usage);
+                        cost_decimal.to_f64().unwrap_or(0.0)
+                    } else {
+                        0.0
+                    }
+                } else {
+                    0.0
+                }
+            };
+            
             ResponseUsage::new(
                 token_usage.input_tokens,
                 token_usage.output_tokens,
-                0.0, // TODO: calculate cost based on pricing
+                cost,
             )
         } else {
             ResponseUsage::default()
@@ -312,6 +322,12 @@ impl ChatService {
 
         let response = ChatResponse::new(assistant_message, usage, processing_time)
             .with_tool_calls(tool_invocations);
+
+        // Update session in storage
+        {
+            let mut sessions = self.sessions.write().await;
+            sessions.insert(session_id.to_string(), session);
+        }
 
         info!("Generated response for session {} in {}ms", session_id, processing_time);
         Ok(response)
@@ -393,6 +409,7 @@ impl ChatService {
     }
 
     /// Execute tool calls from the AI model
+    #[allow(dead_code)]
     async fn execute_tool_calls(
         &self,
         tool_calls: Vec<serde_json::Value>,
@@ -476,6 +493,7 @@ impl ChatService {
     }
 
     /// Format response content with tool results
+    #[allow(dead_code)]
     fn format_response_with_tools(&self, content: &str, tool_invocations: &[ToolInvocation]) -> String {
         let mut formatted = content.to_string();
         

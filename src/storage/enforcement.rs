@@ -2,11 +2,11 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn, error};
 use rust_decimal::Decimal;
-use chrono::{DateTime, Utc, Datelike};
+use chrono::{DateTime, Utc};
 use serde::{Serialize, Deserialize};
 
-use crate::error::{Error, Result};
-use crate::storage::billing::{BillingSystem, SpendingCheckResult, SpendingLimitType, BillingPeriod};
+use crate::error::Result;
+use crate::storage::billing::{BillingSystem, SpendingCheckResult};
 
 /// Spending limits enforcement service
 pub struct SpendingEnforcement {

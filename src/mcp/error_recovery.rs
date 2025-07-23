@@ -156,6 +156,7 @@ pub enum RecoveryResult<T> {
 }
 
 impl MCPErrorRecovery {
+    #[allow(dead_code)]
     /// Create a new error recovery manager
     pub fn new(config: ErrorRecoveryConfig) -> Self {
         Self {
@@ -363,6 +364,7 @@ impl MCPErrorRecovery {
     }
 
     /// Record failed operation
+    #[allow(dead_code)]
     async fn record_failure(&self, server_name: &str, error: &Error) {
         debug!("Recording failure for server '{}': {}", server_name, error);
 
@@ -402,6 +404,7 @@ impl MCPErrorRecovery {
     }
 
     /// Get retry policy for a server
+    #[allow(dead_code)]
     async fn get_retry_policy(&self, server_name: &str) -> RetryPolicy {
         let policies = self.retry_policies.read().await;
         policies.get(server_name).cloned().unwrap_or_else(|| {
@@ -414,6 +417,7 @@ impl MCPErrorRecovery {
     }
 
     /// Check if an error is retryable
+    #[allow(dead_code)]
     fn is_retryable_error(&self, error: &Error, policy: &RetryPolicy) -> bool {
         let error_str = error.to_string().to_lowercase();
         
@@ -423,6 +427,7 @@ impl MCPErrorRecovery {
     }
 
     /// Calculate retry delay with exponential backoff and jitter
+    #[allow(dead_code)]
     fn calculate_retry_delay(&self, policy: &RetryPolicy, attempt: u32) -> Duration {
         let base_delay_ms = policy.base_delay.as_millis() as f64;
         let delay_ms = base_delay_ms * policy.backoff_multiplier.powi((attempt - 1) as i32);
@@ -461,6 +466,7 @@ impl MCPErrorRecovery {
     }
 
     /// Handle final failure after all retries exhausted
+    #[allow(dead_code)]
     async fn handle_final_failure<T>(
         &self,
         operation_name: &str,
@@ -498,7 +504,7 @@ impl MCPErrorRecovery {
                 }
 
                 match handler.handle_fallback(operation_name, &error) {
-                    Ok(FallbackResult::Success(value)) => {
+                    Ok(FallbackResult::Success(_value)) => {
                         info!("Fallback succeeded for operation '{}'", operation_name);
                         // We can't convert serde_json::Value to T without more type information
                         // In a real implementation, we'd need a more sophisticated approach
@@ -506,7 +512,7 @@ impl MCPErrorRecovery {
                             "Fallback succeeded but type conversion not implemented".to_string()
                         ));
                     }
-                    Ok(FallbackResult::Degraded(value)) => {
+                    Ok(FallbackResult::Degraded(_value)) => {
                         warn!("Fallback provided degraded result for operation '{}'", operation_name);
                         return RecoveryResult::Failed(Error::mcp(
                             "Fallback degraded but type conversion not implemented".to_string()
