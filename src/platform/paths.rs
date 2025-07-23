@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use crate::error::{Error, Result};
 
 pub struct AppPaths {
-    project_dirs: ProjectDirs,
+    project_dirs: Option<ProjectDirs>,
+    #[cfg(test)]
+    test_data_dir: Option<PathBuf>,
 }
 
 impl AppPaths {
@@ -12,19 +14,28 @@ impl AppPaths {
         let project_dirs = ProjectDirs::from("ai", "valechat", "ValeChat")
             .ok_or_else(|| Error::platform("Failed to determine application directories"))?;
         
-        Ok(Self { project_dirs })
+        Ok(Self { 
+            project_dirs: Some(project_dirs),
+            #[cfg(test)]
+            test_data_dir: None,
+        })
     }
 
     pub fn config_dir(&self) -> PathBuf {
-        self.project_dirs.config_dir().to_path_buf()
+        self.project_dirs.as_ref().unwrap().config_dir().to_path_buf()
     }
 
     pub fn data_dir(&self) -> PathBuf {
-        self.project_dirs.data_dir().to_path_buf()
+        #[cfg(test)]
+        if let Some(test_dir) = &self.test_data_dir {
+            return test_dir.clone();
+        }
+        
+        self.project_dirs.as_ref().unwrap().data_dir().to_path_buf()
     }
 
     pub fn cache_dir(&self) -> PathBuf {
-        self.project_dirs.cache_dir().to_path_buf()
+        self.project_dirs.as_ref().unwrap().cache_dir().to_path_buf()
     }
 
     pub fn config_file(&self) -> PathBuf {
@@ -50,6 +61,14 @@ impl AppPaths {
         std::fs::create_dir_all(self.logs_dir())?;
         std::fs::create_dir_all(self.mcp_servers_dir())?;
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub fn with_data_dir(data_dir: &std::path::Path) -> Result<Self> {
+        Ok(Self {
+            project_dirs: None,
+            test_data_dir: Some(data_dir.to_path_buf()),
+        })
     }
 }
 

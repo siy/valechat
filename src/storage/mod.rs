@@ -1,3 +1,19 @@
-// Storage module - to be implemented in Phase 4
+// Storage layer for persistent data
 
-pub struct Database;
+pub mod database;
+pub mod conversations;
+pub mod usage;
+pub mod billing;
+pub mod enforcement;
+pub mod dashboard;
+pub mod backup;
+
+pub use database::{Database, DatabaseStatistics, decimal_helpers};
+pub use conversations::{ConversationRepository, ConversationStatistics};
+pub use usage::{UsageRepository, UsageRecord, BillingSummary, UsageStatistics, ProviderUsage, ModelUsage};
+pub use billing::{BillingSystem, SpendingLimit, SpendingLimitType, BillingPeriod, BillingAlert, AlertType, 
+                  VerificationResult, BillingReport, SpendingCheckResult, SpendingLimitStatus};
+pub use enforcement::{SpendingEnforcement, EnforcementResult, EnforcementAction, EnforcementConfig, 
+                      EnforcementStatus, LimitInfo};
+pub use dashboard::{BillingDashboard, DashboardData, BillingOverview, MonthlyReport, ExportFormat};
+pub use backup::{BackupSystem, BackupConfig, BackupInfo, BackupType, RecoveryOptions, RecoveryResult};
