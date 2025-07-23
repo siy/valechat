@@ -1,0 +1,89 @@
+[package]
+name = "valechat"
+version = "0.1.0"
+edition = "2021"
+authors = ["ValeChat Team <team@valechat.ai>"]
+description = "Multi-model AI chat application with MCP server support"
+homepage = "https://valechat.ai"
+repository = "https://github.com/valechat/valechat"
+license = "Apache-2.0"
+
+[dependencies]
+# UI Framework - Cross-platform compatible (temporarily disabled for Phase 1 testing)
+# tauri = { version = "2.0", features = ["tray-icon"] }
+# tauri-plugin-store = "2.0"
+# tauri-plugin-dialog = "2.0"
+# tauri-plugin-notification = "2.0"
+
+# Async Runtime
+tokio = { version = "1.0", features = ["full"] }
+futures = "0.3"
+async-stream = "0.3"
+
+# HTTP & WebSockets
+reqwest = { version = "0.12", features = ["json", "stream"] }
+tokio-tungstenite = "0.21"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# Database - Fixed decimal handling
+sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio-rustls", "migrate"] }
+rust_decimal = { version = "1.33", features = ["serde"] }
+
+# Configuration & Platform Support
+config = "0.14"
+directories = "5.0"
+
+# Cross-platform secure storage
+keyring = "2.0"
+
+# Process management and sandboxing
+tokio-process = "0.2"
+
+# Error Handling & Circuit Breaker
+anyhow = "1.0"
+thiserror = "1.0"
+tokio-retry = "0.3"
+
+# Logging & Monitoring
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+
+# State Management
+arc-swap = "1.6"
+parking_lot = "0.12"
+
+# Input Validation
+validator = { version = "0.18", features = ["derive"] }
+ammonia = "3.3"
+
+# Async trait support
+async-trait = "0.1"
+
+# UUID generation
+uuid = { version = "1.6", features = ["v4", "serde"] }
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# Base64 encoding for encryption
+base64 = "0.22"
+
+[dev-dependencies]
+tempfile = "3.8"
+
+[target.'cfg(unix)'.dependencies]
+# Unix-specific dependencies for process management
+libc = "0.2"
+nix = { version = "0.27", features = ["process", "signal"] }
+
+[target.'cfg(windows)'.dependencies]
+# Windows-specific dependencies
+windows = { version = "0.52", features = ["Win32_System_Threading"] }
+
+# [build-dependencies]
+# tauri-build = { version = "2.0" }

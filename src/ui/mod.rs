@@ -1,0 +1,1 @@
+// UI module - Tauri commands and UI logic
