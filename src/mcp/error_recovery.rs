@@ -352,14 +352,22 @@ impl MCPErrorRecovery {
             let mut stats = self.stats.write().await;
             stats.successful_operations += 1;
             
-            if let Some(server_stats) = stats.operations_by_server.get_mut(server_name) {
-                server_stats.successful_operations += 1;
-                
-                // Update average response time (simple moving average)
-                let duration_ms = duration.as_millis() as f64;
-                server_stats.avg_response_time_ms = 
-                    (server_stats.avg_response_time_ms + duration_ms) / 2.0;
-            }
+            let server_stats = stats.operations_by_server
+                .entry(server_name.to_string())
+                .or_insert_with(|| ServerOperationStats {
+                    total_operations: 0,
+                    successful_operations: 0,
+                    failed_operations: 0,
+                    avg_response_time_ms: 0.0,
+                    circuit_breaker_state: CircuitBreakerState::Closed,
+                });
+            
+            server_stats.successful_operations += 1;
+            
+            // Update average response time (simple moving average)
+            let duration_ms = duration.as_millis() as f64;
+            server_stats.avg_response_time_ms = 
+                (server_stats.avg_response_time_ms + duration_ms) / 2.0;
         }
     }
 
@@ -397,9 +405,17 @@ impl MCPErrorRecovery {
             let mut stats = self.stats.write().await;
             stats.failed_operations += 1;
             
-            if let Some(server_stats) = stats.operations_by_server.get_mut(server_name) {
-                server_stats.failed_operations += 1;
-            }
+            let server_stats = stats.operations_by_server
+                .entry(server_name.to_string())
+                .or_insert_with(|| ServerOperationStats {
+                    total_operations: 0,
+                    successful_operations: 0,
+                    failed_operations: 0,
+                    avg_response_time_ms: 0.0,
+                    circuit_breaker_state: CircuitBreakerState::Closed,
+                });
+            
+            server_stats.failed_operations += 1;
         }
     }
 
@@ -580,7 +596,6 @@ impl FallbackHandler for DefaultFallbackHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::time::sleep;
 
     #[tokio::test]
     async fn test_error_recovery_creation() {

@@ -541,7 +541,7 @@ mod tests {
         let input = json!({"message": "<b>Hello</b> <script>alert('xss')</script>world"});
         let result = sanitizer.sanitize_tool_input(&input).unwrap();
         
-        let expected_text = "Hello world"; // HTML tags removed and special chars escaped
+        let _expected_text = "Hello world"; // HTML tags removed and special chars escaped
         assert!(result["message"].as_str().unwrap().contains("Hello"));
         assert!(!result["message"].as_str().unwrap().contains("<script>"));
     }

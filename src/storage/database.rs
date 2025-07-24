@@ -306,6 +306,7 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
     use crate::platform::AppPaths;
+    use rust_decimal::Decimal;
 
     async fn create_test_database() -> (Database, TempDir) {
         let temp_dir = TempDir::new().unwrap();

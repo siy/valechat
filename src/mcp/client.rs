@@ -477,8 +477,6 @@ pub struct MCPClientStatistics {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::config::MCPServerConfig;
-    use std::collections::HashMap;
 
     fn create_test_server_manager() -> MCPServerManager {
         MCPServerManager::new()
@@ -533,7 +531,7 @@ mod tests {
         
         // Add a fake pending request manually for testing
         {
-            let (_tx, _rx) = oneshot::channel();
+            let (_tx, _rx) = oneshot::channel::<()>();
             let mut pending = client.pending_requests.write().await;
             pending.insert("test_request".to_string(), PendingRequest {
                 timestamp: Instant::now() - Duration::from_secs(1), // Old timestamp

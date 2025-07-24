@@ -305,7 +305,7 @@ pub struct ProviderStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::provider::{Message, MessageRole};
+    use crate::models::provider::Message;
 
     #[test]
     fn test_fallback_config_default() {
