@@ -13,7 +13,6 @@ use crate::models::{
     Message, MessageRole, TokenUsage, PricingInfo, ModelCapabilities, 
     HealthStatus, RateLimits
 };
-use uuid;
 use crate::models::circuit_breaker::CircuitBreaker;
 
 pub struct OpenAIProvider {
@@ -21,8 +20,6 @@ pub struct OpenAIProvider {
     api_key: String,
     base_url: String,
     circuit_breaker: CircuitBreaker,
-    #[allow(dead_code)]
-    timeout: Duration,
 }
 
 impl OpenAIProvider {
@@ -48,7 +45,6 @@ impl OpenAIProvider {
             api_key,
             base_url,
             circuit_breaker,
-            timeout: Duration::from_secs(60),
         })
     }
 
@@ -269,7 +265,6 @@ struct OpenAIRequest {
 
 #[derive(Debug, Serialize)]
 struct OpenAIMessage {
-    #[allow(dead_code)]
     role: String,
     content: String,
 }
@@ -286,16 +281,12 @@ struct OpenAIResponse {
 
 #[derive(Debug, Deserialize)]
 struct OpenAIChoice {
-    #[allow(dead_code)]
-    index: u32,
     message: OpenAIResponseMessage,
     finish_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct OpenAIResponseMessage {
-    #[allow(dead_code)]
-    role: String,
     content: String,
 }
 
@@ -317,25 +308,19 @@ struct OpenAIStreamResponse {
 
 #[derive(Debug, Deserialize)]
 struct OpenAIStreamChoice {
-    #[allow(dead_code)]
-    index: u32,
     delta: OpenAIStreamDelta,
     finish_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct OpenAIStreamDelta {
     content: Option<String>,
-    role: Option<String>,
 }
 
 pub struct OpenAIStream {
     response: reqwest::Response,
     buffer: String,
     finished: bool,
-    #[allow(dead_code)]
-    current_id: String,
 }
 
 impl OpenAIStream {
@@ -344,7 +329,6 @@ impl OpenAIStream {
             response,
             buffer: String::new(),
             finished: false,
-            current_id: uuid::Uuid::new_v4().to_string(),
         })
     }
 

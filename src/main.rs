@@ -14,12 +14,6 @@ use valechat::app::{AppConfig, config::{MCPServerConfig, TransportType}};
 // Tauri command result type
 type CommandResult<T> = Result<T, String>;
 
-// Convert internal Result to Tauri command result (unused but may be needed later)
-#[allow(dead_code)]
-fn convert_result<T>(result: AppResult<T>) -> CommandResult<T> {
-    result.map_err(|e| e.to_string())
-}
-
 // App info command
 #[tauri::command]
 fn get_app_info() -> AppInfo {
@@ -60,8 +54,6 @@ struct SendMessageRequest {
     content: String,
     model: String,
     provider: String,
-    #[allow(dead_code)]
-    stream: bool,
 }
 
 #[derive(serde::Serialize)]
@@ -502,8 +494,6 @@ async fn update_app_config(
 struct UpdateModelProviderRequest {
     id: String,
     enabled: Option<bool>,
-    #[allow(dead_code)]
-    config: Option<std::collections::HashMap<String, String>>,
 }
 
 #[tauri::command]

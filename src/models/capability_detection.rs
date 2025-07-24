@@ -59,8 +59,6 @@ struct ModelPerformanceData {
     avg_response_time_ms: u64,
     success_rate: f32,
     avg_quality_score: f32,
-    #[allow(dead_code)]
-    cost_effectiveness: f32,
 }
 
 impl CapabilityDetector {
@@ -362,14 +360,12 @@ impl CapabilityDetector {
             avg_response_time_ms: 3000,
             success_rate: 0.98,
             avg_quality_score: 0.95,
-            cost_effectiveness: 0.7,
         });
         
         self.model_performance_data.insert("openai:gpt-3.5-turbo".to_string(), ModelPerformanceData {
             avg_response_time_ms: 1500,
             success_rate: 0.96,
             avg_quality_score: 0.85,
-            cost_effectiveness: 0.9,
         });
         
         // Anthropic models
@@ -377,21 +373,18 @@ impl CapabilityDetector {
             avg_response_time_ms: 4000,
             success_rate: 0.97,
             avg_quality_score: 0.96,
-            cost_effectiveness: 0.6,
         });
         
         self.model_performance_data.insert("anthropic:claude-3-sonnet-20240229".to_string(), ModelPerformanceData {
             avg_response_time_ms: 2500,
             success_rate: 0.96,
             avg_quality_score: 0.90,
-            cost_effectiveness: 0.8,
         });
         
         self.model_performance_data.insert("anthropic:claude-3-haiku-20240307".to_string(), ModelPerformanceData {
             avg_response_time_ms: 1200,
             success_rate: 0.94,
             avg_quality_score: 0.82,
-            cost_effectiveness: 0.95,
         });
         
         // Gemini models
@@ -399,14 +392,12 @@ impl CapabilityDetector {
             avg_response_time_ms: 2800,
             success_rate: 0.95,
             avg_quality_score: 0.88,
-            cost_effectiveness: 0.85,
         });
         
         self.model_performance_data.insert("gemini:gemini-1.5-flash".to_string(), ModelPerformanceData {
             avg_response_time_ms: 1000,
             success_rate: 0.93,
             avg_quality_score: 0.80,
-            cost_effectiveness: 0.98,
         });
     }
 
@@ -416,26 +407,22 @@ impl CapabilityDetector {
                 avg_response_time_ms: 2000,
                 success_rate: 0.95,
                 avg_quality_score: 0.85,
-                cost_effectiveness: 0.8,
-            },
+                },
             "anthropic" => ModelPerformanceData {
                 avg_response_time_ms: 2500,
                 success_rate: 0.95,
                 avg_quality_score: 0.88,
-                cost_effectiveness: 0.75,
             },
             "gemini" => ModelPerformanceData {
                 avg_response_time_ms: 2000,
                 success_rate: 0.93,
                 avg_quality_score: 0.82,
-                cost_effectiveness: 0.9,
-            },
+                },
             _ => ModelPerformanceData {
                 avg_response_time_ms: 3000,
                 success_rate: 0.9,
                 avg_quality_score: 0.8,
-                cost_effectiveness: 0.7,
-            },
+                },
         }
     }
 }

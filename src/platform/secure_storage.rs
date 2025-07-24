@@ -14,18 +14,6 @@ pub trait SecureStorage: Send + Sync {
 
 pub struct SecureStorageManager {
     backend: Box<dyn SecureStorage>,
-    #[allow(dead_code)]
-    audit_log: Vec<AuditEntry>,
-}
-
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-struct AuditEntry {
-    timestamp: chrono::DateTime<chrono::Utc>,
-    operation: String,
-    service: String,
-    key: String,
-    success: bool,
 }
 
 impl SecureStorageManager {
@@ -33,7 +21,6 @@ impl SecureStorageManager {
         let backend = create_platform_storage()?;
         Ok(Self {
             backend,
-            audit_log: Vec::new(),
         })
     }
 

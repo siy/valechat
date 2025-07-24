@@ -60,8 +60,6 @@ pub struct MCPServerInstance {
     tools: Arc<RwLock<Vec<Tool>>>,
     resources: Arc<RwLock<Vec<Resource>>>,
     prompts: Arc<RwLock<Vec<Prompt>>>,
-    #[allow(dead_code)]
-    last_activity: Arc<RwLock<Instant>>,
 }
 
 impl MCPServerInstance {
@@ -77,7 +75,6 @@ impl MCPServerInstance {
             tools: Arc::new(RwLock::new(Vec::new())),
             resources: Arc::new(RwLock::new(Vec::new())),
             prompts: Arc::new(RwLock::new(Vec::new())),
-            last_activity: Arc::new(RwLock::new(Instant::now())),
         }
     }
 

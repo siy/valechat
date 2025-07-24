@@ -7,6 +7,12 @@ use tracing::{debug, info, warn};
 
 use crate::error::{Error, Result};
 use crate::mcp::protocol::{ProtocolHandler, JsonRpcRequest, JsonRpcResponse};
+
+/// Simple pending request tracking
+#[derive(Debug)]
+struct PendingRequest {
+    timestamp: Instant,
+}
 use crate::mcp::server_manager::{MCPServerManager, ServerState};
 use crate::mcp::types::{Tool, ToolResult, Resource, Prompt, Content, ToolCall};
 use crate::mcp::validation::{InputValidator, ValidationConfig};
@@ -20,16 +26,6 @@ pub struct MCPClient {
     validator: Arc<Mutex<InputValidator>>,
 }
 
-/// Represents a pending request waiting for response
-#[derive(Debug)]
-#[allow(dead_code)]
-struct PendingRequest {
-    request_id: String,
-    server_name: String,
-    method: String,
-    timestamp: Instant,
-    response_tx: oneshot::Sender<Result<JsonRpcResponse>>,
-}
 
 /// Configuration for the MCP client
 #[derive(Debug, Clone)]
@@ -357,17 +353,13 @@ impl MCPClient {
         debug!("Sending request {} to server: {}", request_id, server_name);
         
         // Create a channel for the response
-        let (response_tx, response_rx) = oneshot::channel();
+        let (_response_tx, response_rx) = oneshot::channel();
         
         // Store the pending request
         {
             let mut pending = self.pending_requests.write().await;
             pending.insert(request_id.clone(), PendingRequest {
-                request_id: request_id.clone(),
-                server_name: server_name.to_string(),
-                method: request.method.clone(),
                 timestamp: Instant::now(),
-                response_tx,
             });
         }
         
@@ -462,8 +454,8 @@ impl MCPClient {
             .collect();
         
         for request_id in old_request_ids {
-            if let Some(request) = pending.remove(&request_id) {
-                warn!("Cleaning up timed out request: {} to server: {}", request_id, request.server_name);
+            if let Some(_request) = pending.remove(&request_id) {
+                warn!("Cleaning up timed out request: {}", request_id);
                 // The response channel will be automatically closed when dropped
             }
         }
@@ -541,14 +533,10 @@ mod tests {
         
         // Add a fake pending request manually for testing
         {
-            let (tx, _rx) = oneshot::channel();
+            let (_tx, _rx) = oneshot::channel();
             let mut pending = client.pending_requests.write().await;
             pending.insert("test_request".to_string(), PendingRequest {
-                request_id: "test_request".to_string(),
-                server_name: "test_server".to_string(),
-                method: "test_method".to_string(),
                 timestamp: Instant::now() - Duration::from_secs(1), // Old timestamp
-                response_tx: tx,
             });
         }
         

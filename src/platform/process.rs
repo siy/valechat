@@ -48,18 +48,15 @@ impl Default for ResourceLimits {
 pub struct SandboxedProcess {
     pub id: u32,
     child: Child,
-    #[allow(dead_code)]
-    config: ProcessConfig,
     start_time: std::time::Instant,
 }
 
 impl SandboxedProcess {
-    pub fn new(child: Child, config: ProcessConfig) -> Self {
+    pub fn new(child: Child, _config: ProcessConfig) -> Self {
         let id = child.id().unwrap_or(0);
         Self {
             id,
             child,
-            config,
             start_time: std::time::Instant::now(),
         }
     }

@@ -8,7 +8,7 @@ use rust_decimal::prelude::ToPrimitive;
 use crate::app::AppState;
 use crate::chat::types::{
     ChatMessage, ChatSession, ChatResponse, ChatError, MessageRole, MessageContent,
-    ToolInvocation, ResponseUsage, SessionStatus
+    ResponseUsage, SessionStatus
 };
 use crate::error::{Error, Result};
 use crate::mcp::{MCPClient, MCPClientConfig, MCPServerManager};
@@ -408,66 +408,6 @@ impl ChatService {
         Ok(available_tools)
     }
 
-    /// Execute tool calls from the AI model
-    #[allow(dead_code)]
-    async fn execute_tool_calls(
-        &self,
-        tool_calls: Vec<serde_json::Value>,
-        _session: &ChatSession,
-    ) -> Result<Vec<ToolInvocation>> {
-        let mut invocations = Vec::new();
-
-        for tool_call in tool_calls {
-            let tool_name = tool_call.get("function")
-                .and_then(|f| f.get("name"))
-                .and_then(|n| n.as_str())
-                .ok_or_else(|| Error::Chat("Invalid tool call format".to_string()))?;
-
-            let arguments = tool_call.get("function")
-                .and_then(|f| f.get("arguments"))
-                .cloned()
-                .unwrap_or_else(|| serde_json::json!({}));
-
-            // Parse server and tool name
-            let parts: Vec<&str> = tool_name.split(':').collect();
-            if parts.len() != 2 {
-                warn!("Invalid tool name format: {}", tool_name);
-                continue;
-            }
-
-            let server_name = parts[0];
-            let actual_tool_name = parts[1];
-
-            let start_time = Instant::now();
-            let mut invocation = ToolInvocation::new(
-                actual_tool_name.to_string(),
-                server_name.to_string(),
-                arguments.clone(),
-            );
-
-            // Execute the tool call
-            match self.mcp_client.call_tool(server_name, actual_tool_name, arguments, None).await {
-                Ok(result) => {
-                    let duration = start_time.elapsed().as_millis() as u64;
-                    let result_json = serde_json::to_value(&result)
-                        .unwrap_or_else(|_| serde_json::json!({"error": "Failed to serialize result"}));
-                    invocation = invocation.with_result(result_json, duration);
-                    
-                    debug!("Tool call succeeded: {} on {} in {}ms", actual_tool_name, server_name, duration);
-                }
-                Err(e) => {
-                    let duration = start_time.elapsed().as_millis() as u64;
-                    invocation = invocation.with_error(e.to_string(), duration);
-                    
-                    warn!("Tool call failed: {} on {}: {}", actual_tool_name, server_name, e);
-                }
-            }
-
-            invocations.push(invocation);
-        }
-
-        Ok(invocations)
-    }
 
     /// Convert chat messages to provider format
     fn convert_to_provider_messages(&self, messages: &[ChatMessage]) -> Result<Vec<crate::models::provider::Message>> {
@@ -492,35 +432,6 @@ impl ChatService {
         Ok(provider_messages)
     }
 
-    /// Format response content with tool results
-    #[allow(dead_code)]
-    fn format_response_with_tools(&self, content: &str, tool_invocations: &[ToolInvocation]) -> String {
-        let mut formatted = content.to_string();
-        
-        if !tool_invocations.is_empty() {
-            formatted.push_str("\n\n**Tool Results:**\n");
-            
-            for invocation in tool_invocations {
-                if let Some(result) = &invocation.result {
-                    formatted.push_str(&format!(
-                        "- **{}** ({}): {}\n",
-                        invocation.tool_name,
-                        invocation.server_name,
-                        serde_json::to_string_pretty(result).unwrap_or_else(|_| "Invalid result".to_string())
-                    ));
-                } else if let Some(error) = &invocation.error {
-                    formatted.push_str(&format!(
-                        "- **{}** ({}): Error - {}\n",
-                        invocation.tool_name,
-                        invocation.server_name,
-                        error
-                    ));
-                }
-            }
-        }
-
-        formatted
-    }
 
     /// Clean up old sessions
     async fn cleanup_old_sessions(&self) {
