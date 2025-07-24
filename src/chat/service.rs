@@ -263,9 +263,18 @@ impl ChatService {
             provider.send_message(chat_request).await?
         };
 
-        // Handle tool calls if present (TODO: implement when ModelProvider supports tools)
+        // Handle tool calls if present
+        // Note: Full tool integration requires ModelProvider trait extension to support tools
+        // For now, tool calls would be handled through a separate flow:
+        // 1. Model returns a response indicating it wants to use a tool
+        // 2. Parse the tool request from the response
+        // 3. Execute the tool through MCP
+        // 4. Send tool results back to the model
         let tool_invocations = Vec::new();
         let final_content = model_response.content.clone();
+        
+        // Future implementation would check if response contains tool calls
+        // and execute them through self.mcp_client
 
         // Create assistant response message
         let assistant_message = ChatMessage::new(

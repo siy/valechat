@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{oneshot, Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock};
 use tokio::time::timeout;
 use tracing::{debug, info, warn};
 
@@ -352,8 +352,7 @@ impl MCPClient {
             
         debug!("Sending request {} to server: {}", request_id, server_name);
         
-        // Create a channel for the response
-        let (_response_tx, response_rx) = oneshot::channel();
+        // No longer need a channel since we're sending directly through the server manager
         
         // Store the pending request
         {
@@ -383,21 +382,26 @@ impl MCPClient {
             return Err(Error::mcp(format!("Server {} not found", server_name)));
         }
         
-        // TODO: In a full implementation, we would send the request through the transport
-        // For now, we'll simulate the response handling
-        drop(server_manager);
+        // Send the request through the server manager with timeout
+        let response_result = timeout(
+            self.request_timeout,
+            server_manager.send_request_to_server(server_name, request)
+        ).await;
         
-        // Wait for response with timeout
-        match timeout(self.request_timeout, response_rx).await {
+        // Clean up pending request and handle response
+        match response_result {
             Ok(Ok(response)) => {
                 debug!("Received response for request {} from server: {}", request_id, server_name);
-                response
-            }
-            Ok(Err(_)) => {
-                // Channel was closed - this means the request was likely canceled
+                // Clean up pending request
                 let mut pending = self.pending_requests.write().await;
                 pending.remove(&request_id);
-                Err(Error::mcp("Request channel closed".to_string()))
+                Ok(response)
+            }
+            Ok(Err(e)) => {
+                // Request failed
+                let mut pending = self.pending_requests.write().await;
+                pending.remove(&request_id);
+                Err(e)
             }
             Err(_) => {
                 // Timeout occurred

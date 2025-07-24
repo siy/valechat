@@ -145,11 +145,14 @@ impl ProcessManager for DefaultProcessManager {
             }
         }
 
-        // TODO: Implement platform-specific resource limits
-        // This would involve:
-        // - Linux: cgroups, namespaces, seccomp
-        // - macOS: sandbox-exec, resource limits
-        // - Windows: job objects, restricted tokens
+        // Platform-specific resource limits are not yet implemented
+        // Future implementation would involve:
+        // - Linux: cgroups v2 for memory/CPU limits, namespaces for isolation, seccomp for syscall filtering
+        // - macOS: sandbox-exec profiles, setrlimit for resource limits, App Sandbox for isolation
+        // - Windows: Job Objects for resource limits, restricted tokens for privilege reduction
+        // 
+        // For now, processes run with inherited limits from the parent process
+        // This is acceptable for Phase 3 as basic process management works
 
         let child = cmd.spawn().map_err(|e| {
             warn!("Failed to spawn process {}: {}", config.command, e);

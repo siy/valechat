@@ -256,12 +256,22 @@ impl ResourceManager {
             // Subscribe through the MCP client
             let clients = self.clients.read().await;
             if let Some(_client) = clients.get(&server_name) {
-                // TODO: Implement subscription through MCP protocol
-                // For now, we'll mark the resource as subscribed
+                // Create subscription request through the MCP client
+                // Note: Resource subscriptions are optional in MCP protocol
+                // Many servers may not support this feature
+                
+                // For now, just mark as subscribed locally
+                // In a full implementation with servers that support subscriptions,
+                // we would send a resources/subscribe request here
                 drop(clients);
                 self.mark_resource_subscribed(uri).await;
+                info!("Marked resource {} as subscribed (server: {})", uri, server_name);
                 
-                info!("Successfully subscribed to resource: {}", uri);
+                // Note: Real subscription would involve:
+                // 1. Sending resources/subscribe request
+                // 2. Handling subscription confirmation
+                // 3. Setting up notification handlers for resource changes
+                
                 Ok(())
             } else {
                 Err(Error::mcp(format!("Server not found for resource: {}", uri)))

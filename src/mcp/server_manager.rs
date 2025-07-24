@@ -304,6 +304,31 @@ impl MCPServerInstance {
         }
     }
 
+    /// Send a JSON-RPC request through the transport
+    pub async fn send_request(&self, request: crate::mcp::protocol::JsonRpcRequest) -> Result<crate::mcp::protocol::JsonRpcResponse> {
+        if let Some(transport) = &self.transport {
+            // Convert request to protocol message
+            let message = crate::mcp::protocol::ProtocolMessage::Request(request);
+            
+            // Send request through transport
+            transport.send(&message).await?;
+            
+            // Wait for response
+            // In a real implementation, we would match response by request ID
+            // For now, we'll wait for the next message
+            if let Some(response_msg) = transport.receive().await? {
+                match response_msg {
+                    crate::mcp::protocol::ProtocolMessage::Response(response) => Ok(response),
+                    _ => Err(Error::mcp("Unexpected message type received".to_string()))
+                }
+            } else {
+                Err(Error::mcp("No response received".to_string()))
+            }
+        } else {
+            Err(Error::mcp("Transport not available - server not started".to_string()))
+        }
+    }
+
     /// Perform health check on the server
     pub async fn health_check(&self) -> Result<()> {
         let start_time = Instant::now();
@@ -518,6 +543,28 @@ impl MCPServerManager {
         });
 
         self._health_check_handle = Some(handle);
+    }
+
+    /// Send a request to a specific server
+    pub async fn send_request_to_server(
+        &self,
+        server_name: &str,
+        request: crate::mcp::protocol::JsonRpcRequest,
+    ) -> Result<crate::mcp::protocol::JsonRpcResponse> {
+        let servers = self.servers.read().await;
+        
+        if let Some(instance) = servers.get(server_name) {
+            // Check if server is ready
+            let state = instance.get_state().await;
+            if state != ServerState::Ready {
+                return Err(Error::mcp(format!("Server {} is not ready (state: {:?})", server_name, state)));
+            }
+            
+            // Send request through the server instance
+            instance.send_request(request).await
+        } else {
+            Err(Error::mcp(format!("Server {} not found", server_name)))
+        }
     }
 }
 

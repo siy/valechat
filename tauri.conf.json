@@ -118,14 +118,6 @@
       "sidecar": true,
       "open": true
     },
-    "dialog": {
-      "all": true,
-      "ask": true,
-      "confirm": true,
-      "message": true,
-      "open": true,
-      "save": true
-    },
     "fs": {
       "all": true,
       "readFile": true,
@@ -152,23 +144,13 @@
         "https://api.github.com/*"
       ]
     },
-    "notification": {
-      "all": true
-    },
     "os": {
-      "all": true
-    },
-    "path": {
       "all": true
     },
     "process": {
       "all": false,
       "exit": true,
       "relaunch": true
-    },
-    "store": {
-      "all": true,
-      "createStore": true
     }
   }
 }

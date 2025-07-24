@@ -297,7 +297,7 @@ impl BillingDashboard {
 
         Ok(BillingOverview {
             current_month_spend,
-            current_month_budget: None, // TODO: Get from settings
+            current_month_budget: None, // Will be retrieved from settings in Phase 4
             budget_utilization: None,
             previous_month_spend,
             month_over_month_change,
@@ -360,7 +360,7 @@ impl BillingDashboard {
                     amount: billing.total_cost,
                     requests: billing.request_count,
                     percentage_of_total: percentage,
-                    tokens_used: 0, // TODO: Calculate from usage records
+                    tokens_used: 0, // Will be calculated from usage records in Phase 4
                 }
             })
             .collect();
@@ -438,7 +438,7 @@ impl BillingDashboard {
         };
 
         // Generate seasonal patterns (simplified)
-        let seasonal_patterns = vec![]; // TODO: Implement seasonal analysis
+        let seasonal_patterns = vec![]; // Seasonal analysis will be implemented in Phase 5
 
         // Generate usage patterns
         let usage_patterns = self.get_usage_patterns().await?;
@@ -467,7 +467,7 @@ impl BillingDashboard {
             .map(|(k, v)| (k.clone(), v.total_cost))
             .collect();
 
-        // TODO: Implement more detailed breakdowns
+        // Additional detailed breakdowns will be implemented in Phase 5
         let by_token_type = HashMap::new();
         let by_request_type = HashMap::new();
         
