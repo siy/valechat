@@ -14,20 +14,34 @@ const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
     currentConversation, 
     setCurrentConversation,
     deleteConversation,
-    updateConversation 
+    updateConversation,
+    loadConversationMessages
   } = useChatStore();
   
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
 
-  const handleConversationClick = (conversation: any) => {
+  const handleConversationClick = async (conversation: any) => {
     setCurrentConversation(conversation);
+    // Load the conversation messages if they haven't been loaded yet
+    if (conversation.messages.length === 0) {
+      try {
+        await loadConversationMessages(conversation.id);
+      } catch (error) {
+        console.error('Failed to load conversation messages:', error);
+      }
+    }
   };
 
-  const handleDeleteConversation = (e: React.MouseEvent, conversationId: string) => {
+  const handleDeleteConversation = async (e: React.MouseEvent, conversationId: string) => {
     e.stopPropagation();
     if (confirm('Delete this conversation? This action cannot be undone.')) {
-      deleteConversation(conversationId);
+      try {
+        await deleteConversation(conversationId);
+      } catch (error) {
+        console.error('Failed to delete conversation:', error);
+        // Error is already handled in the store
+      }
     }
   };
 
@@ -37,12 +51,18 @@ const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
     setEditTitle(conversation.title);
   };
 
-  const handleSaveTitle = (conversationId: string) => {
+  const handleSaveTitle = async (conversationId: string) => {
     if (editTitle.trim()) {
-      updateConversation(conversationId, { 
-        title: editTitle.trim(),
-        updated_at: Date.now()
-      });
+      try {
+        await updateConversation(conversationId, { 
+          title: editTitle.trim(),
+          updated_at: Date.now()
+        });
+      } catch (error) {
+        console.error('Failed to update conversation title:', error);
+        // Error is already handled in the store
+        return; // Don't clear the edit state if there was an error
+      }
     }
     setEditingId(null);
     setEditTitle('');

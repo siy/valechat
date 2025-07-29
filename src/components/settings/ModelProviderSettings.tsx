@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useApiKeyStore } from '../../stores/apiKeyStore';
 import { ModelProvider } from '../../types';
 
 interface ModelProviderSettingsProps {
@@ -8,7 +9,20 @@ interface ModelProviderSettingsProps {
 
 const ModelProviderSettings: React.FC<ModelProviderSettingsProps> = ({ onSettingsChange }) => {
   const { config, updateModelProvider } = useSettingsStore();
+  const { apiKeys, setApiKey, loadApiKeys } = useApiKeyStore();
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
+  const [localKeys, setLocalKeys] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    // Load API keys when component mounts
+    const providers = config.model_providers.map(p => p.id);
+    loadApiKeys(providers);
+  }, [config.model_providers, loadApiKeys]);
+
+  useEffect(() => {
+    // Update local state when API keys change
+    setLocalKeys({ ...apiKeys });
+  }, [apiKeys]);
 
   const handleProviderToggle = (providerId: string, enabled: boolean) => {
     updateModelProvider(providerId, { enabled });
@@ -31,16 +45,35 @@ const ModelProviderSettings: React.FC<ModelProviderSettingsProps> = ({ onSetting
   const getProviderStatusColor = (provider: ModelProvider) => {
     if (!provider.enabled) return 'var(--text-secondary)';
     
-    // Check if required fields are filled
-    const hasApiKey = provider.config.api_key && provider.config.api_key.length > 0;
+    // Check if API key exists in secure storage
+    const hasApiKey = apiKeys[provider.id] && apiKeys[provider.id].length > 0;
     return hasApiKey ? '#16a34a' : '#ea580c';
   };
 
   const getProviderStatusText = (provider: ModelProvider) => {
     if (!provider.enabled) return 'Disabled';
     
-    const hasApiKey = provider.config.api_key && provider.config.api_key.length > 0;
+    const hasApiKey = apiKeys[provider.id] && apiKeys[provider.id].length > 0;
     return hasApiKey ? 'Configured' : 'Missing API Key';
+  };
+
+  const handleApiKeyChange = (providerId: string, value: string) => {
+    setLocalKeys(prev => ({
+      ...prev,
+      [providerId]: value
+    }));
+  };
+
+  const handleApiKeySave = async (providerId: string) => {
+    const key = localKeys[providerId]?.trim();
+    if (!key) return;
+
+    try {
+      await setApiKey(providerId, key);
+      onSettingsChange();
+    } catch (error) {
+      console.error('Failed to save API key:', error);
+    }
   };
 
   return (
@@ -92,16 +125,24 @@ const ModelProviderSettings: React.FC<ModelProviderSettingsProps> = ({ onSetting
               <div className="settings-row">
                 <div className="settings-label">
                   <h4>API Key</h4>
-                  <p>Your API key for {provider.name}</p>
+                  <p>Your API key for {provider.name} (stored securely)</p>
                 </div>
-                <div className="settings-control">
+                <div className="settings-control" style={{ display: 'flex', gap: '8px' }}>
                   <input
                     type="password"
                     className="form-input"
-                    placeholder="Enter API key..."
-                    value={provider.config.api_key || ''}
-                    onChange={(e) => handleConfigUpdate(provider.id, 'api_key', e.target.value)}
+                    placeholder={apiKeys[provider.id] ? "••••••••••••" : "Enter API key..."}
+                    value={localKeys[provider.id] || ''}
+                    onChange={(e) => handleApiKeyChange(provider.id, e.target.value)}
+                    style={{ flex: 1 }}
                   />
+                  <button
+                    className="btn btn-small"
+                    onClick={() => handleApiKeySave(provider.id)}
+                    disabled={!localKeys[provider.id] || localKeys[provider.id] === apiKeys[provider.id]}
+                  >
+                    {apiKeys[provider.id] ? 'Update' : 'Save'}
+                  </button>
                 </div>
               </div>
 

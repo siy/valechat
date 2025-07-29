@@ -2,7 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use tauri::{Manager, State};
-use tracing::info;
+use tracing::{info, debug};
 use uuid::Uuid;
 use chrono;
 use rust_decimal::prelude::ToPrimitive;
@@ -97,11 +97,28 @@ async fn get_conversations(app_state: State<'_, AppState>) -> CommandResult<Vec<
 }
 
 #[tauri::command]
+async fn test_create_conversation() -> CommandResult<String> {
+    info!("Test create conversation called");
+    Ok("Test successful".to_string())
+}
+
+#[tauri::command]
+async fn create_conversation_simple(
+    request: CreateConversationRequest,
+) -> CommandResult<String> {
+    info!("Simple create conversation called with title: {:?}", request.title);
+    Ok(format!("Request received with title: {:?}", request.title))
+}
+
+#[tauri::command]
 async fn create_conversation(
     request: CreateConversationRequest,
     app_state: State<'_, AppState>
 ) -> CommandResult<ConversationResponse> {
     info!("Creating conversation: {:?}", request.title);
+    
+    // Check if app state is available
+    debug!("App state is available, proceeding with conversation creation");
     
     let conversation_id = Uuid::new_v4().to_string();
     let now = chrono::Utc::now();
@@ -121,8 +138,11 @@ async fn create_conversation(
         metrics: SessionMetrics::default(),
     };
     
+    debug!("Attempting to create conversation with ID: {}", conversation_id);
+    
     match app_state.get_conversation_repo().create_conversation(&session).await {
         Ok(_) => {
+            info!("Successfully created conversation: {}", conversation_id);
             Ok(ConversationResponse {
                 id: conversation_id,
                 title,
@@ -135,6 +155,7 @@ async fn create_conversation(
         }
         Err(e) => {
             eprintln!("Failed to create conversation: {}", e);
+            debug!("Error details: {:?}", e);
             Err(format!("Failed to create conversation: {}", e))
         }
     }
@@ -146,7 +167,9 @@ async fn send_message(
     app_state: State<'_, AppState>
 ) -> CommandResult<MessageResponse> {
     info!("Sending message to conversation {}", request.conversation_id);
+    debug!("Message request details - model: {}, provider: {}", request.model, request.provider);
     
+    let start_time = std::time::Instant::now();
     let _user_message_id = Uuid::new_v4().to_string();
     let assistant_message_id = Uuid::new_v4().to_string();
     let now = chrono::Utc::now();
@@ -164,19 +187,82 @@ async fn send_message(
         return Err(format!("Failed to save user message: {}", e));
     }
     
-    // For now, create a basic response without full chat service integration
-    // In a full implementation, this would:
-    // 1. Initialize ChatService with the app_state
-    // 2. Call chat_service.send_message() with the session_id and content
-    // 3. Handle the response and tool invocations
-    // 4. Save both user and assistant messages to database
-    // 5. Update conversation metrics and usage tracking
+    // Get model provider configuration
+    let config = app_state.get_config();
+    let model_config = config.models.get(&request.provider)
+        .ok_or_else(|| format!("Provider {} not configured", request.provider))?;
     
-    let response_content = format!("I received your message: \"{}\"", request.content);
+    if !model_config.enabled {
+        return Err(format!("Provider {} is not enabled", request.provider));
+    }
+    
+    // Create provider based on type
+    let (response_text, actual_input_tokens, actual_output_tokens, actual_cost) = match request.provider.as_str() {
+        "openai" => {
+            info!("Using OpenAI provider with model: {}", request.model);
+            
+            // Get API key from secure storage
+            let api_key = app_state.get_api_key(&request.provider)
+                .await
+                .map_err(|e| format!("Failed to get API key: {}", e))?
+                .ok_or_else(|| format!("No API key configured for {}", request.provider))?;
+            
+            debug!("API key retrieved successfully");
+            
+            // Create OpenAI provider
+            let provider = valechat::models::openai::OpenAIProvider::new(api_key)
+                .map_err(|e| format!("Failed to create OpenAI provider: {}", e))?;
+            
+            // Create chat request
+            let message = valechat::models::provider::Message::new(
+                valechat::models::provider::MessageRole::User,
+                request.content.clone()
+            );
+            
+            let chat_request = valechat::models::provider::ChatRequest::new(
+                vec![message],
+                request.model.clone()
+            ).with_temperature(0.7);
+            
+            // Call OpenAI API using ModelProvider trait
+            use valechat::models::provider::ModelProvider;
+            info!("Sending request to OpenAI API...");
+            match provider.send_message(chat_request).await {
+                Ok(response) => {
+                    info!("Received response from OpenAI");
+                    debug!("Response content length: {}", response.content.len());
+                    
+                    // Extract token usage and cost from the actual response
+                    let (input_tokens, output_tokens, cost) = if let Some(usage) = &response.usage {
+                        let cost_value = if let Some(pricing) = provider.get_pricing() {
+                            let cost_decimal = pricing.calculate_cost(usage);
+                            cost_decimal.to_string()
+                        } else {
+                            "0.0".to_string()
+                        };
+                        (usage.input_tokens, usage.output_tokens, cost_value)
+                    } else {
+                        // Fallback values if usage data is not available
+                        (0, 0, "0.0".to_string())
+                    };
+                    
+                    (response.content, input_tokens, output_tokens, cost)
+                },
+                Err(e) => {
+                    eprintln!("OpenAI API error: {}", e);
+                    return Err(format!("OpenAI API error: {}", e));
+                }
+            }
+        },
+        _ => {
+            return Err(format!("Provider {} not yet implemented", request.provider));
+        }
+    };
+    
     let assistant_message = valechat::chat::types::ChatMessage::new(
         request.conversation_id.clone(),
         MessageRole::Assistant,
-        MessageContent::text(response_content.clone()),
+        MessageContent::text(response_text.clone()),
     );
     
     // Save assistant message to database
@@ -185,13 +271,14 @@ async fn send_message(
         return Err(format!("Failed to save assistant message: {}", e));
     }
     
-    // Record usage (placeholder values)
+    // Record actual usage data from the response
+    let cost_decimal = actual_cost.parse::<f64>().unwrap_or(0.0);
     let _usage_request_id = match app_state.get_usage_repo().record_usage(
         &request.provider,
         &request.model,
-        50, // input tokens estimate
-        100, // output tokens estimate  
-        rust_decimal::Decimal::new(5, 3), // $0.005
+        actual_input_tokens,
+        actual_output_tokens,  
+        rust_decimal::Decimal::from_f64_retain(cost_decimal).unwrap_or_default(),
         Some(&request.conversation_id),
         Some(&assistant_message_id),
     ).await {
@@ -202,17 +289,19 @@ async fn send_message(
         }
     };
     
+    let processing_time = start_time.elapsed().as_millis() as u64;
+    
     Ok(MessageResponse {
         id: assistant_message_id,
         role: "assistant".to_string(),
-        content: response_content,
+        content: response_text,
         timestamp: now.timestamp_millis(),
         model_used: Some(request.model),
         provider: Some(request.provider),
-        input_tokens: Some(50),
-        output_tokens: Some(100),
-        cost: Some("0.005".to_string()),
-        processing_time_ms: Some(1500),
+        input_tokens: Some(actual_input_tokens as i32),
+        output_tokens: Some(actual_output_tokens as i32),
+        cost: Some(actual_cost),
+        processing_time_ms: Some(processing_time as i64),
     })
 }
 
@@ -496,6 +585,17 @@ struct UpdateModelProviderRequest {
     enabled: Option<bool>,
 }
 
+#[derive(serde::Deserialize)]
+struct SetApiKeyRequest {
+    provider: String,
+    api_key: String,
+}
+
+#[derive(serde::Deserialize)]
+struct GetApiKeyRequest {
+    provider: String,
+}
+
 #[tauri::command]
 async fn update_model_provider(
     request: UpdateModelProviderRequest,
@@ -515,6 +615,67 @@ async fn update_model_provider(
         Err(e) => {
             eprintln!("Failed to update model provider: {}", e);
             Err(format!("Failed to update model provider: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
+async fn set_api_key(
+    request: SetApiKeyRequest,
+    app_state: State<'_, AppState>
+) -> CommandResult<()> {
+    info!("Setting API key for provider: {}", request.provider);
+    
+    match app_state.set_api_key(&request.provider, &request.api_key).await {
+        Ok(_) => {
+            info!("API key set successfully for provider: {}", request.provider);
+            Ok(())
+        },
+        Err(e) => {
+            eprintln!("Failed to set API key for provider {}: {}", request.provider, e);
+            Err(format!("Failed to set API key: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
+async fn get_api_key(
+    request: GetApiKeyRequest,
+    app_state: State<'_, AppState>
+) -> CommandResult<Option<String>> {
+    info!("Getting API key for provider: {}", request.provider);
+    
+    match app_state.get_api_key(&request.provider).await {
+        Ok(api_key) => {
+            if api_key.is_some() {
+                info!("API key found for provider: {}", request.provider);
+            } else {
+                info!("No API key found for provider: {}", request.provider);
+            }
+            Ok(api_key)
+        },
+        Err(e) => {
+            eprintln!("Failed to get API key for provider {}: {}", request.provider, e);
+            Err(format!("Failed to get API key: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
+async fn remove_api_key(
+    request: GetApiKeyRequest,
+    app_state: State<'_, AppState>
+) -> CommandResult<()> {
+    info!("Removing API key for provider: {}", request.provider);
+    
+    match app_state.remove_api_key(&request.provider).await {
+        Ok(_) => {
+            info!("API key removed successfully for provider: {}", request.provider);
+            Ok(())
+        },
+        Err(e) => {
+            eprintln!("Failed to remove API key for provider {}: {}", request.provider, e);
+            Err(format!("Failed to remove API key: {}", e))
         }
     }
 }
@@ -996,9 +1157,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
-            // Initialize app state in background
+            // Initialize app state synchronously to avoid race conditions
             let app_handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
+            tauri::async_runtime::block_on(async move {
                 match init_app_state().await {
                     Ok(state) => {
                         app_handle.manage(state);
@@ -1006,15 +1167,18 @@ pub fn run() {
                     }
                     Err(e) => {
                         eprintln!("Failed to initialize app state: {}", e);
+                        return Err(format!("Failed to initialize app state: {}", e).into());
                     }
                 }
-            });
-            Ok(())
+                Ok(())
+            })
         })
         .invoke_handler(tauri::generate_handler![
             get_app_info,
             // Chat commands
             get_conversations,
+            test_create_conversation,
+            create_conversation_simple,
             create_conversation,
             send_message,
             get_conversation_messages,
@@ -1024,6 +1188,9 @@ pub fn run() {
             get_app_config,
             update_app_config,
             update_model_provider,
+            set_api_key,
+            get_api_key,
+            remove_api_key,
             // MCP server commands
             get_mcp_servers,
             add_mcp_server,

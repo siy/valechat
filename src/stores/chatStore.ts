@@ -19,8 +19,8 @@ interface ChatState {
   // Actions
   setCurrentConversation: (conversation: Conversation | null) => void;
   addConversation: (conversation: Conversation) => void;
-  updateConversation: (id: string, updates: Partial<Conversation>) => void;
-  deleteConversation: (id: string) => void;
+  updateConversation: (id: string, updates: Partial<Conversation>) => Promise<void>;
+  deleteConversation: (id: string) => Promise<void>;
   addMessage: (conversationId: string, message: Message) => void;
   updateMessage: (conversationId: string, messageId: string, updates: Partial<Message>) => void;
   
@@ -40,6 +40,7 @@ interface ChatState {
   
   // Data fetching
   loadConversations: () => Promise<void>;
+  loadConversationMessages: (conversationId: string) => Promise<void>;
   createNewConversation: (title?: string) => Promise<Conversation>;
   sendMessage: (content: string, model: string, provider: string) => Promise<void>;
 }
@@ -63,22 +64,68 @@ export const useChatStore = create<ChatState>()(
       state.conversations.unshift(conversation);
     }),
 
-    updateConversation: (id, updates) => set((state) => {
-      const index = state.conversations.findIndex(c => c.id === id);
-      if (index !== -1) {
-        Object.assign(state.conversations[index], updates);
+    updateConversation: async (id, updates) => {
+      try {
+        // If title is being updated, call the backend
+        if (updates.title) {
+          await invoke('update_conversation_title', {
+            conversation_id: id,
+            title: updates.title
+          });
+        }
+        
+        // Update local state
+        set((state) => {
+          const index = state.conversations.findIndex(c => c.id === id);
+          if (index !== -1) {
+            Object.assign(state.conversations[index], updates);
+          }
+          if (state.currentConversation?.id === id) {
+            Object.assign(state.currentConversation, updates);
+          }
+        });
+      } catch (error) {
+        console.error('Failed to update conversation:', error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        get().addError({
+          id: Date.now().toString(),
+          type: 'system',
+          message: 'Failed to update conversation',
+          details: errorMessage,
+          timestamp: Date.now(),
+          recoverable: true,
+        });
+        throw error;
       }
-      if (state.currentConversation?.id === id) {
-        Object.assign(state.currentConversation, updates);
-      }
-    }),
+    },
 
-    deleteConversation: (id) => set((state) => {
-      state.conversations = state.conversations.filter(c => c.id !== id);
-      if (state.currentConversation?.id === id) {
-        state.currentConversation = null;
+    deleteConversation: async (id) => {
+      try {
+        await invoke('delete_conversation', {
+          conversation_id: id
+        });
+        
+        // Update local state only if backend call succeeds
+        set((state) => {
+          state.conversations = state.conversations.filter(c => c.id !== id);
+          if (state.currentConversation?.id === id) {
+            state.currentConversation = null;
+          }
+        });
+      } catch (error) {
+        console.error('Failed to delete conversation:', error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        get().addError({
+          id: Date.now().toString(),
+          type: 'system',
+          message: 'Failed to delete conversation',
+          details: errorMessage,
+          timestamp: Date.now(),
+          recoverable: true,
+        });
+        throw error;
       }
-    }),
+    },
 
     addMessage: (conversationId, message) => set((state) => {
       const conversation = state.conversations.find(c => c.id === conversationId);
@@ -191,10 +238,54 @@ export const useChatStore = create<ChatState>()(
       }
     },
 
+    loadConversationMessages: async (conversationId) => {
+      try {
+        const messages = await invoke('get_conversation_messages', {
+          conversation_id: conversationId
+        }) as any[];
+        
+        const mappedMessages: Message[] = messages.map(m => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          timestamp: m.timestamp,
+          model_used: m.model_used,
+          provider: m.provider,
+          input_tokens: m.input_tokens,
+          output_tokens: m.output_tokens,
+          cost: m.cost,
+          processing_time_ms: m.processing_time_ms,
+        }));
+        
+        // Update the conversation's messages
+        set((state) => {
+          const conversation = state.conversations.find(c => c.id === conversationId);
+          if (conversation) {
+            conversation.messages = mappedMessages;
+          }
+          if (state.currentConversation?.id === conversationId) {
+            state.currentConversation.messages = mappedMessages;
+          }
+        });
+      } catch (error) {
+        console.error('Failed to load conversation messages:', error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        get().addError({
+          id: Date.now().toString(),
+          type: 'system',
+          message: 'Failed to load conversation messages',
+          details: errorMessage,
+          timestamp: Date.now(),
+          recoverable: true,
+        });
+        throw error;
+      }
+    },
+
     createNewConversation: async (title) => {
       try {
         const response = await invoke('create_conversation', { 
-          title: title || undefined 
+          request: { title: title || undefined }
         }) as any;
         
         const conversation: Conversation = {
@@ -212,11 +303,13 @@ export const useChatStore = create<ChatState>()(
         get().setCurrentConversation(conversation);
         return conversation;
       } catch (error) {
+        console.error('Failed to create conversation:', error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
         get().addError({
           id: Date.now().toString(),
           type: 'system',
           message: 'Failed to create conversation',
-          details: error instanceof Error ? error.message : 'Unknown error',
+          details: errorMessage,
           timestamp: Date.now(),
           recoverable: true,
         });
@@ -244,11 +337,12 @@ export const useChatStore = create<ChatState>()(
 
       try {
         const response = await invoke('send_message', {
-          conversation_id: currentConversation.id,
-          content,
-          model,
-          provider,
-          stream: true,
+          request: {
+            conversation_id: currentConversation.id,
+            content,
+            model,
+            provider,
+          }
         }) as any;
 
         const assistantMessage: Message = {
