@@ -259,10 +259,8 @@ impl BackupSystem {
             .ok_or_else(|| Error::platform(format!("Backup not found: {}", options.backup_id)))?;
 
         // Verify backup before restore if requested
-        if options.verify_before_restore {
-            if !self.verify_backup(&backup.file_path).await? {
-                return Err(Error::platform("Backup verification failed"));
-            }
+        if options.verify_before_restore && !self.verify_backup(&backup.file_path).await? {
+            return Err(Error::platform("Backup verification failed"));
         }
 
         // Create backup before restore if requested

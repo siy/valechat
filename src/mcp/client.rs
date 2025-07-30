@@ -481,6 +481,7 @@ pub struct MCPClientStatistics {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::sync::oneshot;
 
     fn create_test_server_manager() -> MCPServerManager {
         MCPServerManager::new()

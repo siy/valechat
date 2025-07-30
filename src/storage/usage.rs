@@ -9,6 +9,53 @@ use uuid::Uuid;
 use crate::error::{Error, Result};
 use crate::storage::database::decimal_helpers;
 
+/// Parameters for recording usage
+#[derive(Debug)]
+pub struct UsageParams<'a> {
+    pub provider: &'a str,
+    pub model: &'a str,
+    pub input_tokens: u32,
+    pub output_tokens: u32,
+    pub cost: Decimal,
+    pub conversation_id: Option<&'a str>,
+    pub message_id: Option<&'a str>,
+}
+
+/// Parameters for updating billing summary
+#[derive(Debug)]
+struct BillingSummaryParams<'a> {
+    billing_period: &'a str,
+    provider: &'a str,
+    model: &'a str,
+    input_tokens: u32,
+    output_tokens: u32,
+    cost: Decimal,
+}
+
+impl<'a> UsageParams<'a> {
+    pub fn new(provider: &'a str, model: &'a str, input_tokens: u32, output_tokens: u32, cost: Decimal) -> Self {
+        Self {
+            provider,
+            model,
+            input_tokens,
+            output_tokens,
+            cost,
+            conversation_id: None,
+            message_id: None,
+        }
+    }
+    
+    pub fn with_conversation_id(mut self, conversation_id: &'a str) -> Self {
+        self.conversation_id = Some(conversation_id);
+        self
+    }
+    
+    pub fn with_message_id(mut self, message_id: &'a str) -> Self {
+        self.message_id = Some(message_id);
+        self
+    }
+}
+
 /// Repository for managing usage tracking and billing
 pub struct UsageRepository {
     pool: SqlitePool,
@@ -82,23 +129,14 @@ impl UsageRepository {
     }
 
     /// Record a usage event for billing tracking
-    pub async fn record_usage(
-        &self,
-        provider: &str,
-        model: &str,
-        input_tokens: u32,
-        output_tokens: u32,
-        cost: Decimal,
-        conversation_id: Option<&str>,
-        message_id: Option<&str>,
-    ) -> Result<String> {
+    pub async fn record_usage(&self, params: UsageParams<'_>) -> Result<String> {
         let request_id = Uuid::new_v4().to_string();
         let now = Utc::now();
         let billing_period = format!("{:04}-{:02}", now.year(), now.month());
         
         debug!(
             "Recording usage: provider={}, model={}, input_tokens={}, output_tokens={}, cost={}",
-            provider, model, input_tokens, output_tokens, cost
+            params.provider, params.model, params.input_tokens, params.output_tokens, params.cost
         );
 
         // Start transaction for atomic operation
@@ -114,13 +152,13 @@ impl UsageRepository {
             "#
         )
         .bind(now.timestamp())
-        .bind(provider)
-        .bind(model)
-        .bind(input_tokens as i32)
-        .bind(output_tokens as i32)
-        .bind(decimal_helpers::decimal_to_string(cost))
-        .bind(conversation_id)
-        .bind(message_id)
+        .bind(params.provider)
+        .bind(params.model)
+        .bind(params.input_tokens as i32)
+        .bind(params.output_tokens as i32)
+        .bind(decimal_helpers::decimal_to_string(params.cost))
+        .bind(params.conversation_id)
+        .bind(params.message_id)
         .bind(&request_id)
         .bind(&billing_period)
         .bind(false) // Not verified initially
@@ -128,15 +166,15 @@ impl UsageRepository {
         .await?;
 
         // Update billing summary
-        self.update_billing_summary_tx(
-            &mut tx,
-            &billing_period,
-            provider,
-            model,
-            input_tokens,
-            output_tokens,
-            cost,
-        ).await?;
+        let billing_params = BillingSummaryParams {
+            billing_period: &billing_period,
+            provider: params.provider,
+            model: params.model,
+            input_tokens: params.input_tokens,
+            output_tokens: params.output_tokens,
+            cost: params.cost,
+        };
+        self.update_billing_summary_tx(&mut tx, billing_params).await?;
 
         tx.commit().await?;
 
@@ -148,12 +186,7 @@ impl UsageRepository {
     async fn update_billing_summary_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
-        billing_period: &str,
-        provider: &str,
-        model: &str,
-        input_tokens: u32,
-        output_tokens: u32,
-        cost: Decimal,
+        params: BillingSummaryParams<'_>,
     ) -> Result<()> {
         sqlx::query(
             r#"
@@ -171,15 +204,15 @@ impl UsageRepository {
                 last_updated = unixepoch()
             "#
         )
-        .bind(billing_period)
-        .bind(provider)
-        .bind(model)
-        .bind(input_tokens as i32)
-        .bind(output_tokens as i32)
-        .bind(decimal_helpers::decimal_to_string(cost))
-        .bind(input_tokens as i32)
-        .bind(output_tokens as i32)
-        .bind(decimal_helpers::decimal_to_string(cost))
+        .bind(params.billing_period)
+        .bind(params.provider)
+        .bind(params.model)
+        .bind(params.input_tokens as i32)
+        .bind(params.output_tokens as i32)
+        .bind(decimal_helpers::decimal_to_string(params.cost))
+        .bind(params.input_tokens as i32)
+        .bind(params.output_tokens as i32)
+        .bind(decimal_helpers::decimal_to_string(params.cost))
         .execute(&mut **tx)
         .await?;
 
@@ -352,7 +385,7 @@ impl UsageRepository {
 
             let timestamp_unix: i64 = row.get("timestamp");
             let timestamp = DateTime::from_timestamp(timestamp_unix, 0)
-                .unwrap_or_else(|| Utc::now());
+                .unwrap_or_else(Utc::now);
 
             let verification_timestamp_unix: Option<i64> = row.get("verification_timestamp");
             let verification_timestamp = verification_timestamp_unix
@@ -428,7 +461,7 @@ impl UsageRepository {
 
             let last_updated_unix: i64 = row.get("last_updated");
             let last_updated = DateTime::from_timestamp(last_updated_unix, 0)
-                .unwrap_or_else(|| Utc::now());
+                .unwrap_or_else(Utc::now);
 
             summaries.push(BillingSummary {
                 billing_period: row.get("billing_period"),
@@ -600,7 +633,7 @@ impl UsageRepository {
 
             let timestamp_unix: i64 = row.get("timestamp");
             let timestamp = DateTime::from_timestamp(timestamp_unix, 0)
-                .unwrap_or_else(|| Utc::now());
+                .unwrap_or_else(Utc::now);
 
             records.push(UsageRecord {
                 id: row.get("id"),

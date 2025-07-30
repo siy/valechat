@@ -84,14 +84,27 @@ impl ChatService {
 
     /// Initialize available model providers based on configuration
     async fn initialize_model_providers(&self) -> Result<()> {
+        debug!("Initializing model providers");
+        
         let app_config = self.app_state.get_config();
         let mut providers = self.model_providers.write().await;
+        
+        // Collect all enabled providers to batch retrieve API keys
+        let mut enabled_providers = Vec::new();
+        for (provider_id, provider_config) in &app_config.models {
+            if provider_config.enabled {
+                enabled_providers.push(provider_id.as_str());
+            }
+        }
+
+        // Batch retrieve API keys to reduce keychain prompts
+        let api_keys = self.app_state.get_api_keys_batch(&enabled_providers).await?;
 
         // Initialize OpenAI provider if configured
         if let Some(openai_config) = app_config.models.get("openai") {
             if openai_config.enabled {
-                if let Ok(Some(api_key)) = self.app_state.get_api_key("openai").await {
-                    let provider = OpenAIProvider::new(api_key)?;
+                if let Some(api_key) = api_keys.get("openai") {
+                    let provider = OpenAIProvider::new(api_key.clone())?;
                     providers.insert("openai".to_string(), Box::new(provider));
                     debug!("OpenAI provider initialized");
                 }
@@ -101,8 +114,8 @@ impl ChatService {
         // Initialize Anthropic provider if configured
         if let Some(anthropic_config) = app_config.models.get("anthropic") {
             if anthropic_config.enabled {
-                if let Ok(Some(api_key)) = self.app_state.get_api_key("anthropic").await {
-                    let provider = AnthropicProvider::new(api_key)?;
+                if let Some(api_key) = api_keys.get("anthropic") {
+                    let provider = AnthropicProvider::new(api_key.clone())?;
                     providers.insert("anthropic".to_string(), Box::new(provider));
                     debug!("Anthropic provider initialized");
                 }
@@ -110,11 +123,11 @@ impl ChatService {
         }
 
         // Initialize Gemini provider if configured
-        if let Some(gemini_config) = app_config.models.get("google") {
+        if let Some(gemini_config) = app_config.models.get("gemini") {
             if gemini_config.enabled {
-                if let Ok(Some(api_key)) = self.app_state.get_api_key("google").await {
-                    let provider = GeminiProvider::new(api_key)?;
-                    providers.insert("google".to_string(), Box::new(provider));
+                if let Some(api_key) = api_keys.get("gemini") {
+                    let provider = GeminiProvider::new(api_key.clone())?;
+                    providers.insert("gemini".to_string(), Box::new(provider));
                     debug!("Gemini provider initialized");
                 }
             }

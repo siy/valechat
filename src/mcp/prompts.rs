@@ -550,18 +550,22 @@ impl PromptTemplateManager {
         let mut _in_variable = false;
         
         for (line_num, line) in text.lines().enumerate() {
-            for (_char_pos, ch) in line.chars().enumerate() {
+            for ch in line.chars() {
                 match ch {
                     '{' => {
                         brace_count += 1;
-                        if brace_count == 2 {
-                            _in_variable = true;
-                        } else if brace_count > 2 {
-                            errors.push(TemplateValidationError {
-                                message: "Too many opening braces".to_string(),
-                                variable_name: None,
-                                line_number: Some(line_offset + line_num + 1),
-                            });
+                        match brace_count.cmp(&2) {
+                            std::cmp::Ordering::Equal => {
+                                _in_variable = true;
+                            }
+                            std::cmp::Ordering::Greater => {
+                                errors.push(TemplateValidationError {
+                                    message: "Too many opening braces".to_string(),
+                                    variable_name: None,
+                                    line_number: Some(line_offset + line_num + 1),
+                                });
+                            }
+                            std::cmp::Ordering::Less => {}
                         }
                     }
                     '}' => {

@@ -400,7 +400,7 @@ impl From<SandboxConfig> for ProcessConfig {
             },
             network_access: config.enable_network,
             file_system_access: config.allowed_paths.into_iter()
-                .map(|p| std::path::PathBuf::from(p))
+                .map(std::path::PathBuf::from)
                 .collect(),
         }
     }
@@ -409,8 +409,6 @@ impl From<SandboxConfig> for ProcessConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
-    use crate::mcp::protocol::JsonRpcRequest;
 
     #[test]
     fn test_sandbox_config_default() {

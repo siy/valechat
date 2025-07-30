@@ -9,11 +9,11 @@ repository = "https://github.com/valechat/valechat"
 license = "Apache-2.0"
 
 [dependencies]
-# UI Framework - Cross-platform compatible
-tauri = { version = "2.0", features = [ "protocol-asset", "tray-icon"] }
-tauri-plugin-store = "2.0"
-tauri-plugin-dialog = "2.0"
-tauri-plugin-notification = "2.0"
+# TUI Framework
+ratatui = "0.26"
+crossterm = "0.27"
+tui-input = "0.8"
+tui-textarea = "0.4"
 
 # Async Runtime
 tokio = { version = "1.0", features = ["full"] }
@@ -60,10 +60,18 @@ tracing-appender = "0.2"
 arc-swap = "1.6"
 parking_lot = "0.12"
 
+# Text Processing & Syntax Highlighting
+syntect = "5.0"
+pulldown-cmark = "0.10"
+unicode-width = "0.1"
+
 # Input Validation
 validator = { version = "0.18", features = ["derive"] }
 ammonia = "3.3"
 regex = "1.10"
+
+# CLI argument parsing
+clap = { version = "4.0", features = ["derive"] }
 
 # Async trait support
 async-trait = "0.1"
@@ -92,5 +100,4 @@ nix = { version = "0.27", features = ["process", "signal"] }
 # Windows-specific dependencies
 windows = { version = "0.52", features = ["Win32_System_Threading"] }
 
-[build-dependencies]
-tauri-build = { version = "2.0" }
+# Remove build dependencies - no longer needed for TUI

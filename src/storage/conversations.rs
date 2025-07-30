@@ -151,9 +151,9 @@ impl ConversationRepository {
 
                 session.id = row.get("id");
                 session.created_at = DateTime::from_timestamp(created_at_timestamp, 0)
-                    .unwrap_or_else(|| Utc::now());
+                    .unwrap_or_else(Utc::now);
                 session.updated_at = DateTime::from_timestamp(updated_at_timestamp, 0)
-                    .unwrap_or_else(|| Utc::now());
+                    .unwrap_or_else(Utc::now);
                 session.system_prompt = row.get("system_prompt");
                 session.status = status;
                 session.settings = settings;
@@ -226,9 +226,9 @@ impl ConversationRepository {
 
             session.id = row.get("id");
             session.created_at = DateTime::from_timestamp(created_at_timestamp, 0)
-                .unwrap_or_else(|| Utc::now());
+                .unwrap_or_else(Utc::now);
             session.updated_at = DateTime::from_timestamp(updated_at_timestamp, 0)
-                .unwrap_or_else(|| Utc::now());
+                .unwrap_or_else(Utc::now);
             session.system_prompt = row.get("system_prompt");
             session.status = status;
             session.settings = settings;
@@ -443,7 +443,7 @@ impl ConversationRepository {
 
             let timestamp_unix: i64 = row.get("timestamp");
             let timestamp = DateTime::from_timestamp(timestamp_unix, 0)
-                .unwrap_or_else(|| Utc::now());
+                .unwrap_or_else(Utc::now);
 
             let metadata_json: String = row.get("metadata");
             let metadata: HashMap<String, serde_json::Value> = serde_json::from_str(&metadata_json)
@@ -498,7 +498,7 @@ impl ConversationRepository {
 
             let timestamp_unix: i64 = row.get("timestamp");
             let timestamp = DateTime::from_timestamp(timestamp_unix, 0)
-                .unwrap_or_else(|| Utc::now());
+                .unwrap_or_else(Utc::now);
 
             let mut invocation = ToolInvocation::new(
                 row.get::<String, _>("tool_name"),
@@ -585,7 +585,7 @@ pub struct ConversationStatistics {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chat::types::{SessionSettings, MessageContent};
+    use crate::chat::types::MessageContent;
     use tempfile::TempDir;
     use crate::storage::Database;
     use crate::platform::AppPaths;

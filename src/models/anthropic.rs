@@ -82,7 +82,7 @@ impl AnthropicProvider {
 
         let response = self
             .client
-            .post(&format!("{}/messages", self.base_url))
+            .post(format!("{}/messages", self.base_url))
             .header("Content-Type", "application/json")
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
@@ -161,7 +161,7 @@ impl ModelProvider for AnthropicProvider {
             
             async move {
                 let response = client
-                    .post(&format!("{}/messages", base_url))
+                    .post(format!("{}/messages", base_url))
                     .header("Content-Type", "application/json")
                     .header("x-api-key", &api_key)
                     .header("anthropic-version", "2023-06-01")

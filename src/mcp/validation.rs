@@ -140,7 +140,7 @@ impl InputValidator {
         let minute_ago = now - std::time::Duration::from_secs(60);
 
         // Get or create rate limit entry for client
-        let requests = self.rate_limiter.entry(client_id.to_string()).or_insert_with(Vec::new);
+        let requests = self.rate_limiter.entry(client_id.to_string()).or_default();
 
         // Remove old entries
         requests.retain(|&timestamp| timestamp > minute_ago);
@@ -199,24 +199,18 @@ impl InputValidator {
         }
 
         // Check for JavaScript if not allowed
-        if !self.config.allow_javascript {
-            if self.contains_javascript(content) {
-                return Err(Error::validation("JavaScript content not allowed".to_string()));
-            }
+        if !self.config.allow_javascript && self.contains_javascript(content) {
+            return Err(Error::validation("JavaScript content not allowed".to_string()));
         }
 
         // Check for HTML if not allowed
-        if !self.config.allow_html {
-            if self.contains_html(content) {
-                return Err(Error::validation("HTML content not allowed".to_string()));
-            }
+        if !self.config.allow_html && self.contains_html(content) {
+            return Err(Error::validation("HTML content not allowed".to_string()));
         }
 
         // Check for SQL if not allowed
-        if !self.config.allow_sql {
-            if self.contains_sql_injection_patterns(content) {
-                return Err(Error::validation("Potential SQL injection detected".to_string()));
-            }
+        if !self.config.allow_sql && self.contains_sql_injection_patterns(content) {
+            return Err(Error::validation("Potential SQL injection detected".to_string()));
         }
 
         Ok(())

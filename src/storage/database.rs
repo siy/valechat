@@ -59,7 +59,7 @@ impl Database {
         let mut migration_files = std::fs::read_dir(&migrations_dir)?
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.path())
-            .filter(|path| path.extension().map_or(false, |ext| ext == "sql"))
+            .filter(|path| path.extension().is_some_and(|ext| ext == "sql"))
             .collect::<Vec<_>>();
 
         migration_files.sort();
