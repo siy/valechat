@@ -2,17 +2,35 @@ use ratatui::{
     layout::{Alignment, Rect},
     style::Style,
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
 
 use crate::tui::{components::Component, Event, Theme};
+
+#[derive(Debug, Clone)]
+pub struct KeyHint {
+    pub key: String,
+    pub action: String,
+}
+
+impl KeyHint {
+    pub fn new(key: impl Into<String>, action: impl Into<String>) -> Self {
+        Self {
+            key: key.into(),
+            action: action.into(),
+        }
+    }
+}
 
 pub struct StatusBar {
     status_message: String,
     model_info: String,
     cost_info: String,
     connection_status: ConnectionStatus,
+    key_hints: Vec<KeyHint>,
+    conversation_cost: f64,
+    session_cost: f64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -33,6 +51,13 @@ impl StatusBar {
             model_info: "No model selected".to_string(),
             cost_info: "$0.00".to_string(),
             connection_status: ConnectionStatus::Disconnected,
+            key_hints: vec![
+                KeyHint::new("F1", "Help"),
+                KeyHint::new("Tab", "Switch Panel"),
+                KeyHint::new("Ctrl+Q", "Quit"),
+            ],
+            conversation_cost: 0.0,
+            session_cost: 0.0,
         }
     }
 
@@ -55,6 +80,32 @@ impl StatusBar {
         self.connection_status = status;
     }
 
+    pub fn set_key_hints(&mut self, hints: Vec<KeyHint>) {
+        self.key_hints = hints;
+    }
+
+    #[allow(dead_code)]
+    pub fn update_conversation_cost(&mut self, cost: f64) {
+        self.conversation_cost = cost;
+        self.update_cost_display();
+    }
+
+    #[allow(dead_code)]
+    pub fn update_session_cost(&mut self, cost: f64) {
+        self.session_cost = cost;
+        self.update_cost_display();
+    }
+
+    fn update_cost_display(&mut self) {
+        if self.session_cost > 0.0 {
+            self.cost_info = format!("Conv: ${:.4} | Total: ${:.4}", self.conversation_cost, self.session_cost);
+        } else if self.conversation_cost > 0.0 {
+            self.cost_info = format!("${:.4}", self.conversation_cost);
+        } else {
+            self.cost_info = "$0.00".to_string();
+        }
+    }
+
     fn get_connection_indicator(&self, theme: &Theme) -> (String, Style) {
         match &self.connection_status {
             ConnectionStatus::Connected => ("●".to_string(), theme.success()),
@@ -68,17 +119,32 @@ impl StatusBar {
 impl Component for StatusBar {
     fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let (conn_symbol, conn_style) = self.get_connection_indicator(theme);
+        let available_width = area.width as usize;
         
-        let status_line = Line::from(vec![
-            Span::styled(&self.status_message, theme.normal()),
-            Span::raw(" | "),
-            Span::styled(&self.model_info, theme.accent()),
-            Span::raw(" | "),
-            Span::styled(&self.cost_info, theme.warning()),
-            Span::raw(" | "),
-            Span::styled(conn_symbol, conn_style),
-            Span::raw(" "),
-            Span::styled(
+        // Build status line sections based on available width
+        let mut spans = Vec::new();
+        
+        // Always show status message (highest priority)
+        spans.push(Span::styled(&self.status_message, theme.normal()));
+        
+        // Model info (high priority)
+        if available_width > 40 {
+            spans.push(Span::raw(" │ "));
+            spans.push(Span::styled(&self.model_info, theme.accent()));
+        }
+        
+        // Cost info (medium priority)
+        if available_width > 60 && self.cost_info != "$0.00" {
+            spans.push(Span::raw(" │ "));
+            spans.push(Span::styled(&self.cost_info, theme.warning()));
+        }
+        
+        // Connection status (medium priority)
+        if available_width > 80 {
+            spans.push(Span::raw(" │ "));
+            spans.push(Span::styled(conn_symbol, conn_style));
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
                 match &self.connection_status {
                     ConnectionStatus::Connected => "Connected",
                     ConnectionStatus::Connecting => "Connecting...",
@@ -86,16 +152,39 @@ impl Component for StatusBar {
                     ConnectionStatus::Error(err) => err,
                 },
                 theme.secondary()
-            ),
-            // Help text on the right
-            Span::raw(" | "),
-            Span::styled("F1: Help", theme.secondary()),
-            Span::raw(" | "),
-            Span::styled("Ctrl+Q: Quit", theme.secondary()),
-        ]);
+            ));
+        } else if available_width > 50 {
+            // Just show the connection indicator symbol
+            spans.push(Span::raw(" │ "));
+            spans.push(Span::styled(conn_symbol, conn_style));
+        }
+        
+        // Key hints (low priority, shown on the right)
+        if available_width > 100 && !self.key_hints.is_empty() {
+            let hints_text = self.key_hints.iter()
+                .map(|hint| format!("{}: {}", hint.key, hint.action))
+                .collect::<Vec<_>>()
+                .join(" │ ");
+            
+            // Calculate space needed for hints
+            let left_text_len: usize = spans.iter()
+                .map(|span| span.content.chars().count())
+                .sum();
+            
+            let hints_len = hints_text.chars().count();
+            
+            if left_text_len + hints_len + 5 < available_width {
+                // Add spacing to push hints to the right
+                let padding = available_width - left_text_len - hints_len - 5;
+                spans.push(Span::raw(" ".repeat(padding)));
+                spans.push(Span::raw(" │ "));
+                spans.push(Span::styled(hints_text, theme.secondary()));
+            }
+        }
+        
+        let status_line = Line::from(spans);
 
         let paragraph = Paragraph::new(status_line)
-            .block(Block::default().borders(Borders::TOP).border_style(theme.border()))
             .alignment(Alignment::Left);
 
         frame.render_widget(paragraph, area);

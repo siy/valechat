@@ -10,7 +10,7 @@ use crate::tui::{
     components::{
         chat_view::{ChatMessage, ChatView, MessageRole},
         conversation_list::{ConversationItem, ConversationList},
-        Component, HelpPopup, InputBox, StatusBar
+        Component, HelpPopup, InputBox, StatusBar, status_bar::{KeyHint, ConnectionStatus}
     },
     Event, Theme,
 };
@@ -167,7 +167,14 @@ impl App {
                 self.chat_view.handle_event(&Event::Key(key))
             }
             FocusedPanel::InputBox => {
-                self.input_box.handle_event(&Event::Key(key))
+                let result = self.input_box.handle_event(&Event::Key(key));
+                
+                // Update status based on input box content (only when input box is focused)
+                if self.focused_panel == FocusedPanel::InputBox {
+                    self.status_bar.set_status("Type your message (Enter to send)".to_string());
+                }
+                
+                result
             }
         };
 
@@ -205,6 +212,8 @@ impl App {
                     let content = self.input_box.get_content();
                     if !content.trim().is_empty() {
                         self.input_box.clear();
+                        // Show "Sending..." since user is actively sending from input box
+                        self.status_bar.set_status("Sending...".to_string());
                         let _ = self.event_sender.send(Event::SendMessage(content));
                     }
                 }
@@ -242,6 +251,51 @@ impl App {
             FocusedPanel::ConversationList => self.conversation_list.focus(),
             FocusedPanel::ChatView => self.chat_view.focus(),
             FocusedPanel::InputBox => self.input_box.focus(),
+        }
+
+        // Update status bar key hints based on focused panel
+        self.update_status_key_hints();
+        
+        // Update status message based on focused panel
+        self.update_status_for_focused_panel();
+    }
+
+    fn update_status_key_hints(&mut self) {
+        let key_hints = match self.focused_panel {
+            FocusedPanel::ConversationList => vec![
+                KeyHint::new("Enter", "Open"),
+                KeyHint::new("n", "New"),
+                KeyHint::new("r", "Rename"),
+                KeyHint::new("Del", "Delete"),
+                KeyHint::new("Tab", "Switch Panel"),
+            ],
+            FocusedPanel::ChatView => vec![
+                KeyHint::new("↑/↓", "Scroll"),
+                KeyHint::new("PgUp/PgDn", "Page"),
+                KeyHint::new("Home/End", "Top/Bottom"),
+                KeyHint::new("Tab", "Switch Panel"),
+            ],
+            FocusedPanel::InputBox => vec![
+                KeyHint::new("Enter", "Send"),
+                KeyHint::new("Shift+Enter", "New Line"),
+                KeyHint::new("Tab", "Multiline"),
+                KeyHint::new("Ctrl+Q", "Quit"),
+            ],
+        };
+        self.status_bar.set_key_hints(key_hints);
+    }
+
+    fn update_status_for_focused_panel(&mut self) {
+        match self.focused_panel {
+            FocusedPanel::ConversationList => {
+                self.status_bar.set_status("Select conversation (Enter to open, n for new)".to_string());
+            }
+            FocusedPanel::ChatView => {
+                self.status_bar.set_status("Reading conversation (Tab to input message)".to_string());
+            }
+            FocusedPanel::InputBox => {
+                self.status_bar.set_status("Type your message (Enter to send)".to_string());
+            }
         }
     }
 
@@ -384,7 +438,11 @@ impl App {
         }
         
         if let Some(current_conversation) = self.conversation_list.get_selected_conversation() {
-            self.status_bar.set_status("Sending message...".to_string());
+            // Show conversation loop status only if input box was focused when sending
+            if self.focused_panel == FocusedPanel::InputBox {
+                self.status_bar.set_status("Sending...".to_string());
+            }
+            self.status_bar.set_connection_status(ConnectionStatus::Connecting);
             
             // Add user message to chat view
             let user_message = ChatMessage {
@@ -398,6 +456,11 @@ impl App {
                 model_used: Some("user".to_string()),
             };
             self.chat_view.add_message(user_message);
+            
+            // Update status to show we're waiting for response (only if input box focused)
+            if self.focused_panel == FocusedPanel::InputBox {
+                self.status_bar.set_status("Waiting for response...".to_string());
+            }
             
             // Send message through provider
             match self.app_state.send_message_with_provider(
@@ -418,9 +481,20 @@ impl App {
                         model_used: Some("assistant".to_string()),
                     };
                     self.chat_view.add_message(assistant_message);
-                    self.status_bar.set_status("Message sent successfully".to_string());
+                    
+                    // Update connection status and cost tracking
+                    self.status_bar.set_connection_status(ConnectionStatus::Connected);
+                    // TODO: Get actual cost from API response when available
+                    self.status_bar.update_conversation_cost(0.001); // Placeholder cost
+                    self.status_bar.update_session_cost(0.005); // Placeholder total
+                    
+                    // Only show conversation loop status if input box is focused
+                    if self.focused_panel == FocusedPanel::InputBox {
+                        self.status_bar.set_status("Type your message (Enter to send)".to_string());
+                    }
                 }
                 Err(e) => {
+                    self.status_bar.set_connection_status(ConnectionStatus::Error(e.to_string()));
                     self.status_bar.set_status(format!("Error sending message: {}", e));
                 }
             }
@@ -449,7 +523,10 @@ impl App {
             }
         }
         
-        self.status_bar.set_status("Message received".to_string());
+        // Only show conversation loop status if input box is focused
+        if self.focused_panel == FocusedPanel::InputBox {
+            self.status_bar.set_status("Type your message (Enter to send)".to_string());
+        }
     }
 
     async fn handle_conversation_created(&mut self, _id: String, _title: String) {
@@ -541,6 +618,13 @@ impl App {
 
     pub async fn initialize(&mut self) {
         self.load_conversations().await;
+        
+        // Set initial model info and connection status
+        let provider = self.preferred_provider.as_deref().unwrap_or("openai");
+        let model = self.preferred_model.as_deref().unwrap_or("gpt-3.5-turbo");
+        self.status_bar.set_model_info(provider, model);
+        self.status_bar.set_connection_status(ConnectionStatus::Disconnected);
+
         self.status_bar.set_status("ValeChat initialized".to_string());
     }
 
