@@ -46,15 +46,21 @@ impl AppState {
             api_key_cache: Arc::new(RwLock::new(HashMap::new())),
         };
 
-        // Pre-populate API key cache to avoid multiple keychain prompts during startup
+        // Migrate existing API keys to consolidated storage if needed
+        info!("Checking for API key migration to consolidated storage");
+        if let Err(e) = app_state.secure_storage.migrate_to_consolidated_storage().await {
+            tracing::warn!("API key migration failed: {}", e);
+        }
+
+        // Pre-populate API key cache using consolidated storage (single keychain prompt)
         let enabled_providers: Vec<&str> = config.models.iter()
             .filter(|(_, config)| config.enabled)
             .map(|(name, _)| name.as_str())
             .collect();
         
         if !enabled_providers.is_empty() {
-            info!("Pre-loading API keys for {} enabled providers", enabled_providers.len());
-            let _ = app_state.get_api_keys_batch(&enabled_providers).await;
+            info!("Pre-loading API keys for {} enabled providers using consolidated storage", enabled_providers.len());
+            let _ = app_state.get_api_keys_batch_consolidated(&enabled_providers).await;
         }
 
         Ok(app_state)
@@ -146,6 +152,58 @@ impl AppState {
                 let mut cache = self.api_key_cache.write();
                 for (provider, api_key) in cache_updates {
                     cache.insert(provider, api_key);
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Batch retrieve API keys using consolidated storage (single keychain prompt)
+    pub async fn get_api_keys_batch_consolidated(&self, providers: &[&str]) -> Result<std::collections::HashMap<String, String>> {
+        let mut result = std::collections::HashMap::new();
+        let mut uncached_providers = Vec::new();
+
+        // First, check cache for all providers
+        {
+            let cache = self.api_key_cache.read();
+            for &provider in providers {
+                if let Some(api_key) = cache.get(provider) {
+                    result.insert(provider.to_string(), api_key.clone());
+                } else {
+                    uncached_providers.push(provider);
+                }
+            }
+        }
+
+        // If we have uncached providers, retrieve the entire bundle at once (single keychain prompt)
+        if !uncached_providers.is_empty() {
+            debug!("Retrieving consolidated API key bundle for {} uncached providers", uncached_providers.len());
+            
+            match self.secure_storage.retrieve_api_key_bundle().await {
+                Ok(bundle) => {
+                    let mut cache_updates = std::collections::HashMap::new();
+                    
+                    // Extract keys for requested providers from the bundle
+                    for &provider in &uncached_providers {
+                        if let Some(api_key) = bundle.get_key(provider) {
+                            result.insert(provider.to_string(), api_key.clone());
+                            cache_updates.insert(provider.to_string(), api_key.clone());
+                        }
+                    }
+
+                    // Update cache with all retrieved keys at once
+                    if !cache_updates.is_empty() {
+                        let mut cache = self.api_key_cache.write();
+                        for (provider, api_key) in cache_updates {
+                            cache.insert(provider, api_key);
+                        }
+                        debug!("Updated cache with {} API keys from consolidated storage", result.len());
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to retrieve consolidated API key bundle: {}", e);
+                    return Err(e);
                 }
             }
         }
