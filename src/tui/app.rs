@@ -7,6 +7,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::tui::{
+    commands::{CommandParser, CommandExecutor},
     components::{
         chat_view::{ChatMessage, ChatView, MessageRole},
         conversation_list::{ConversationItem, ConversationList},
@@ -42,6 +43,7 @@ pub struct App {
     // Backend integration
     app_state: Arc<AppState>,
     event_sender: mpsc::UnboundedSender<Event>,
+    command_executor: CommandExecutor,
     
     // Preferences
     preferred_provider: Option<String>,
@@ -62,6 +64,8 @@ impl App {
         preferred_provider: Option<String>,
         preferred_model: Option<String>,
     ) -> Self {
+        let command_executor = CommandExecutor::new(app_state.clone(), event_sender.clone());
+        
         let mut app = Self {
             conversation_list: ConversationList::new(),
             chat_view: ChatView::new(),
@@ -74,6 +78,7 @@ impl App {
             rename_mode: None,
             app_state,
             event_sender,
+            command_executor,
             preferred_provider,
             preferred_model,
         };
@@ -85,6 +90,28 @@ impl App {
 
     pub fn should_quit(&self) -> bool {
         self.should_quit
+    }
+
+    pub fn get_current_provider(&self) -> Option<&String> {
+        self.preferred_provider.as_ref()
+    }
+
+    pub fn get_current_model(&self) -> Option<&String> {
+        self.preferred_model.as_ref()
+    }
+
+    pub fn set_current_provider(&mut self, provider: String) {
+        self.preferred_provider = Some(provider.clone());
+        // Update status bar to show new provider
+        let model = self.preferred_model.as_deref().unwrap_or("default");
+        self.status_bar.set_model_info(&provider, model);
+    }
+
+    pub fn set_current_model(&mut self, model: String) {
+        self.preferred_model = Some(model.clone());
+        // Update status bar to show new model
+        let provider = self.preferred_provider.as_deref().unwrap_or("default");
+        self.status_bar.set_model_info(provider, &model);
     }
 
     pub async fn handle_event(&mut self, event: Event) {
@@ -124,6 +151,15 @@ impl App {
             Event::ConversationRenamed(id, new_title) => {
                 self.handle_conversation_renamed(id, new_title).await;
             }
+            Event::CreateNewConversation => {
+                self.create_new_conversation().await;
+            }
+            Event::SetProvider(provider) => {
+                self.set_current_provider(provider);
+            }
+            Event::SetModel(model) => {
+                self.set_current_model(model);
+            }
             Event::Error(error) => {
                 self.status_bar.set_status(format!("Error: {}", error));
             }
@@ -145,12 +181,52 @@ impl App {
                 self.help_popup.toggle();
                 true
             }
+            (KeyCode::Char('/'), KeyModifiers::CONTROL) => {
+                self.help_popup.toggle();
+                true
+            }
             (KeyCode::Tab, KeyModifiers::NONE) => {
                 self.next_panel();
                 true
             }
             (KeyCode::BackTab, _) => {
                 self.previous_panel();
+                true
+            }
+            // Direct panel switching with Alt+1/2/3 (more reliable than Ctrl+1/2)
+            (KeyCode::Char('1'), KeyModifiers::ALT) => {
+                self.set_focused_panel(FocusedPanel::ConversationList);
+                true
+            }
+            (KeyCode::Char('2'), KeyModifiers::ALT) => {
+                self.set_focused_panel(FocusedPanel::ChatView);
+                true
+            }
+            (KeyCode::Char('3'), KeyModifiers::ALT) => {
+                self.set_focused_panel(FocusedPanel::InputBox);
+                true
+            }
+            // Also support Ctrl+1/2/3 but with explicit handling
+            (KeyCode::Char('1'), KeyModifiers::CONTROL) => {
+                self.set_focused_panel(FocusedPanel::ConversationList);
+                true
+            }
+            (KeyCode::Char('2'), KeyModifiers::CONTROL) => {
+                self.set_focused_panel(FocusedPanel::ChatView);
+                true
+            }
+            (KeyCode::Char('3'), KeyModifiers::CONTROL) => {
+                self.set_focused_panel(FocusedPanel::InputBox);
+                true
+            }
+            // Escape to return to conversation list
+            (KeyCode::Esc, KeyModifiers::NONE) => {
+                self.set_focused_panel(FocusedPanel::ConversationList);
+                true
+            }
+            // Global new conversation
+            (KeyCode::Char('n'), KeyModifiers::CONTROL) => {
+                let _ = self.event_sender.send(Event::CreateNewConversation);
                 true
             }
             _ => false,
@@ -240,6 +316,11 @@ impl App {
         self.update_focus();
     }
 
+    fn set_focused_panel(&mut self, panel: FocusedPanel) {
+        self.focused_panel = panel;
+        self.update_focus();
+    }
+
     fn update_focus(&mut self) {
         // Unfocus all components
         self.conversation_list.unfocus();
@@ -267,19 +348,19 @@ impl App {
                 KeyHint::new("n", "New"),
                 KeyHint::new("r", "Rename"),
                 KeyHint::new("Del", "Delete"),
-                KeyHint::new("Tab", "Switch Panel"),
+                KeyHint::new("Ctrl/Alt+1/2/3", "Panels"),
             ],
             FocusedPanel::ChatView => vec![
                 KeyHint::new("↑/↓", "Scroll"),
                 KeyHint::new("PgUp/PgDn", "Page"),
                 KeyHint::new("Home/End", "Top/Bottom"),
-                KeyHint::new("Tab", "Switch Panel"),
+                KeyHint::new("Ctrl/Alt+1/2/3", "Panels"),
             ],
             FocusedPanel::InputBox => vec![
                 KeyHint::new("Enter", "Send"),
                 KeyHint::new("Shift+Enter", "New Line"),
                 KeyHint::new("Tab", "Multiline"),
-                KeyHint::new("Ctrl+Q", "Quit"),
+                KeyHint::new("Ctrl/Alt+1/2/3", "Panels"),
             ],
         };
         self.status_bar.set_key_hints(key_hints);
@@ -386,11 +467,20 @@ impl App {
     async fn create_new_conversation(&mut self) {
         self.status_bar.set_status("Creating new conversation...".to_string());
         
+        // Get the default provider and model from configuration
+        let (provider, model) = match self.app_state.get_default_provider_and_model() {
+            Ok((p, m)) => (p, m),
+            Err(_) => {
+                self.status_bar.set_status("Error: No providers configured".to_string());
+                return;
+            }
+        };
+        
         // Create a new chat session
         let new_session = ChatSession::new(
             "New Conversation",
-            "openai", // Default provider
-            "gpt-3.5-turbo" // Default model
+            provider, // Use configured default provider
+            model     // Use configured default model
         );
         
         match self.app_state.get_conversation_repo().create_conversation(&new_session).await {
@@ -432,6 +522,12 @@ impl App {
     }
 
     async fn send_message(&mut self, content: String) {
+        // Check if this is a slash command
+        if let Some(command) = CommandParser::parse(&content) {
+            self.execute_slash_command(command, content).await;
+            return;
+        }
+
         // If no conversation is selected, create a new one first
         if self.conversation_list.get_selected_conversation().is_none() {
             self.create_new_conversation().await;
@@ -500,6 +596,51 @@ impl App {
             }
         } else {
             self.status_bar.set_status("No conversation selected".to_string());
+        }
+    }
+
+    async fn execute_slash_command(&mut self, command: crate::tui::commands::SlashCommand, original_input: String) {
+        // Add the command to chat as a user message
+        let user_message = ChatMessage {
+            id: uuid::Uuid::new_v4().to_string(),
+            role: MessageRole::User,
+            content: original_input,
+            timestamp: chrono::Utc::now().timestamp(),
+            cost: None,
+            input_tokens: Some(0),
+            output_tokens: Some(0),
+            model_used: Some("command".to_string()),
+        };
+        self.chat_view.add_message(user_message);
+
+        // Show executing status
+        if self.focused_panel == FocusedPanel::InputBox {
+            self.status_bar.set_status("Executing command...".to_string());
+        }
+
+        // Execute the command
+        let response = self.command_executor.execute_with_context(
+            command, 
+            self.preferred_provider.as_ref(),
+            self.preferred_model.as_ref()
+        ).await;
+
+        // Add the command response to chat
+        let response_message = ChatMessage {
+            id: uuid::Uuid::new_v4().to_string(),
+            role: MessageRole::Assistant,
+            content: response,
+            timestamp: chrono::Utc::now().timestamp(),
+            cost: Some("Free".to_string()), // Commands are free
+            input_tokens: Some(0),
+            output_tokens: Some(0),
+            model_used: Some("system".to_string()),
+        };
+        self.chat_view.add_message(response_message);
+
+        // Update status
+        if self.focused_panel == FocusedPanel::InputBox {
+            self.status_bar.set_status("Command executed".to_string());
         }
     }
 
@@ -620,9 +761,27 @@ impl App {
         self.load_conversations().await;
         
         // Set initial model info and connection status
-        let provider = self.preferred_provider.as_deref().unwrap_or("openai");
-        let model = self.preferred_model.as_deref().unwrap_or("gpt-3.5-turbo");
-        self.status_bar.set_model_info(provider, model);
+        let (provider, model) = if let Some(ref preferred_provider) = self.preferred_provider {
+            // Use CLI-specified provider if available
+            let model = if let Some(ref preferred_model) = self.preferred_model {
+                preferred_model.clone()
+            } else {
+                // Get default model for the preferred provider
+                let config = self.app_state.get_config();
+                config.models.get(preferred_provider)
+                    .map(|c| c.default_model.clone())
+                    .unwrap_or_else(|| "gpt-3.5-turbo".to_string())
+            };
+            (preferred_provider.clone(), model)
+        } else {
+            // Use configuration-based default
+            match self.app_state.get_default_provider_and_model() {
+                Ok((p, m)) => (p, m),
+                Err(_) => ("openai".to_string(), "gpt-3.5-turbo".to_string())
+            }
+        };
+        
+        self.status_bar.set_model_info(&provider, &model);
         self.status_bar.set_connection_status(ConnectionStatus::Disconnected);
 
         self.status_bar.set_status("ValeChat initialized".to_string());

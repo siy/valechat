@@ -117,7 +117,7 @@ impl SecureStorage for KeyringStorage {
 
     async fn delete(&self, service: &str, key: &str) -> Result<()> {
         let entry = Entry::new(service, key)?;
-        match entry.delete_password() {
+        match entry.delete_credential() {
             Ok(()) => Ok(()),
             Err(keyring::Error::NoEntry) => Ok(()), // Already deleted
             Err(e) => Err(Error::SecureStorage(e)),
@@ -134,7 +134,10 @@ impl SecureStorage for KeyringStorage {
 }
 
 fn create_platform_storage() -> Result<Box<dyn SecureStorage>> {
-    // Use keyring for all platforms - it handles platform-specific backends internally
+    // Use standard keyring for all platforms for now
+    // The keyring v3 with apple-native feature should provide better macOS integration
+    // while maintaining compatibility with existing stored keys
+    tracing::info!("Using keyring v3 with enhanced macOS support");
     Ok(Box::new(KeyringStorage))
 }
 

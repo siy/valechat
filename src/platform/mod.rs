@@ -1,4 +1,7 @@
 pub mod secure_storage;
+
+#[cfg(target_os = "macos")]
+pub mod macos_keychain;
 pub mod paths;
 pub mod process;
 

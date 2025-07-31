@@ -36,15 +36,28 @@ impl AppState {
         let conversation_repo = ConversationRepository::new(pool.clone());
         let usage_repo = UsageRepository::new(pool.clone());
 
-        Ok(Self {
-            config: Arc::new(RwLock::new(config)),
+        let app_state = Self {
+            config: Arc::new(RwLock::new(config.clone())),
             paths,
             secure_storage,
             database,
             conversation_repo,
             usage_repo,
             api_key_cache: Arc::new(RwLock::new(HashMap::new())),
-        })
+        };
+
+        // Pre-populate API key cache to avoid multiple keychain prompts during startup
+        let enabled_providers: Vec<&str> = config.models.iter()
+            .filter(|(_, config)| config.enabled)
+            .map(|(name, _)| name.as_str())
+            .collect();
+        
+        if !enabled_providers.is_empty() {
+            info!("Pre-loading API keys for {} enabled providers", enabled_providers.len());
+            let _ = app_state.get_api_keys_batch(&enabled_providers).await;
+        }
+
+        Ok(app_state)
     }
 
     pub fn get_config(&self) -> AppConfig {
@@ -289,6 +302,20 @@ impl AppState {
         }
     }
 
+    /// Get the default provider and model based on configuration priority
+    pub fn get_default_provider_and_model(&self) -> Result<(String, String)> {
+        let config = self.get_config();
+        let models_by_priority = config.get_models_by_priority();
+        
+        if let Some((provider_name, model_config)) = models_by_priority.first() {
+            Ok((provider_name.to_string(), model_config.default_model.clone()))
+        } else {
+            // Fallback if no providers are enabled - this matches the current behavior
+            // but should ideally be an error case that prompts user to configure providers
+            Ok(("openai".to_string(), "gpt-3.5-turbo".to_string()))
+        }
+    }
+
     /// Send a message in a conversation and get the AI response
     pub async fn send_message(&self, conversation_id: &str, content: &str) -> Result<String> {
         self.send_message_with_provider(conversation_id, content, None).await
@@ -310,13 +337,7 @@ impl AppState {
             // Use the preferred provider if specified and enabled
             if let Some(provider_config) = config.models.get(preferred) {
                 if provider_config.enabled {
-                    let model = match preferred {
-                        "openai" => &provider_config.default_model,
-                        "anthropic" => &provider_config.default_model,
-                        "gemini" => &provider_config.default_model,
-                        _ => "gpt-3.5-turbo",
-                    };
-                    (preferred, model)
+                    (preferred, provider_config.default_model.as_str())
                 } else {
                     return Err(crate::error::Error::chat(format!("Provider {} is not enabled", preferred)));
                 }

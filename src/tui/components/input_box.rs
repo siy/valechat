@@ -246,9 +246,15 @@ impl Component for InputBox {
                         true
                     }
                     _ => {
-                        // Let tui-input handle regular input
-                        self.input.handle_event(&crossterm::event::Event::Key(*key));
-                        true
+                        // Only consume regular input events, not control combinations
+                        // Let global hotkeys (Ctrl+1, Ctrl+2, etc.) pass through
+                        if key.modifiers.contains(KeyModifiers::CONTROL) || key.modifiers.contains(KeyModifiers::ALT) {
+                            false // Don't consume control/alt combinations
+                        } else {
+                            // Let tui-input handle regular input
+                            self.input.handle_event(&crossterm::event::Event::Key(*key));
+                            true
+                        }
                     }
                 }
             }

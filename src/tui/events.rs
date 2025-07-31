@@ -26,6 +26,12 @@ pub enum Event {
     #[allow(dead_code)]
     ConversationRenamed(String, String), // id, new_title
     #[allow(dead_code)]
+    CreateNewConversation,
+    #[allow(dead_code)]
+    SetProvider(String),
+    #[allow(dead_code)]
+    SetModel(String),
+    #[allow(dead_code)]
     Error(String),
     #[allow(dead_code)]
     StatusUpdate(String),

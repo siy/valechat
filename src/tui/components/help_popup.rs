@@ -1,4 +1,4 @@
-use crossterm::event::KeyCode;
+use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::Modifier,
@@ -41,12 +41,17 @@ impl HelpPopup {
         vec![
             ("Navigation", ""),
             ("  Tab / Shift+Tab", "Switch between panels"),
+            ("  Ctrl/Alt+1", "Go to Conversations"),
+            ("  Ctrl/Alt+2", "Go to Chat View"),
+            ("  Ctrl/Alt+3", "Go to Input Box"),
+            ("  Escape", "Return to Conversations"),
             ("  Arrow keys / hjkl", "Navigate lists and messages"),
             ("  Page Up/Down", "Scroll messages quickly"),
             ("  Home/End (g/G)", "Go to top/bottom of messages"),
             ("", ""),
             ("Conversations", ""),
             ("  n", "New conversation"),
+            ("  Ctrl+N", "New conversation (global)"),
             ("  Enter", "Select conversation"),
             ("  d", "Delete conversation"),
             ("  r", "Rename conversation"),
@@ -55,9 +60,10 @@ impl HelpPopup {
             ("  Enter", "Send message"),
             ("  Shift+Enter", "New line in message"),
             ("  Tab (in input)", "Toggle multiline mode"),
+            ("  /command", "Execute CLI commands (try /help)"),
             ("", ""),
             ("General", ""),
-            ("  F1", "Show/hide this help"),
+            ("  F1 / Ctrl+/", "Show/hide this help"),
             ("  Ctrl+C / Ctrl+Q", "Quit application"),
             ("  Ctrl+S", "Settings"),
             ("  Ctrl+E", "Export conversation"),
@@ -138,8 +144,12 @@ impl Component for HelpPopup {
 
         match event {
             Event::Key(key) => {
-                match key.code {
-                    KeyCode::Esc | KeyCode::F(1) | KeyCode::Char('q') => {
+                match (key.code, key.modifiers) {
+                    (KeyCode::Esc, _) | (KeyCode::F(1), _) | (KeyCode::Char('q'), _) => {
+                        self.hide();
+                        true
+                    }
+                    (KeyCode::Char('/'), KeyModifiers::CONTROL) => {
                         self.hide();
                         true
                     }
