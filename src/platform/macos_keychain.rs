@@ -24,9 +24,8 @@ impl MacOSKeychainStorage {
     }
 
     fn get_full_service(&self, service: &str) -> String {
-        // The service is already the full service name (e.g., "ai.valechat.api_keys")
-        // Don't prepend the service_name again
-        service.to_string()
+        // Use the configured service_name as prefix for better organization
+        format!("{}.{}", self.service_name, service)
     }
 
     fn create_entry(&self, service: &str, key: &str) -> Result<Entry> {

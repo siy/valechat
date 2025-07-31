@@ -92,13 +92,6 @@ impl App {
         self.should_quit
     }
 
-    pub fn get_current_provider(&self) -> Option<&String> {
-        self.preferred_provider.as_ref()
-    }
-
-    pub fn get_current_model(&self) -> Option<&String> {
-        self.preferred_model.as_ref()
-    }
 
     pub fn set_current_provider(&mut self, provider: String) {
         self.preferred_provider = Some(provider.clone());
