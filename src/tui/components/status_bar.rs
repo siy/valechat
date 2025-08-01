@@ -8,6 +8,16 @@ use ratatui::{
 
 use crate::tui::{components::Component, Event, Theme};
 
+// Constants for repeated strings
+const SEPARATOR: &str = " │ ";
+const DEFAULT_COST: &str = "$0.00";
+const STATUS_MESSAGE_WIDTH: usize = 40;
+
+// Connection status text constants
+const CONNECTION_CONNECTED: &str = "Connected";
+const CONNECTION_CONNECTING: &str = "Connecting...";
+const CONNECTION_DISCONNECTED: &str = "Disconnected";
+
 #[derive(Debug, Clone)]
 pub struct KeyHint {
     pub key: String,
@@ -49,7 +59,7 @@ impl StatusBar {
         Self {
             status_message: "Ready".to_string(),
             model_info: "No model selected".to_string(),
-            cost_info: "$0.00".to_string(),
+            cost_info: DEFAULT_COST.to_string(),
             connection_status: ConnectionStatus::Disconnected,
             key_hints: vec![
                 KeyHint::new("F1", "Help"),
@@ -73,6 +83,10 @@ impl StatusBar {
     #[allow(dead_code)]
     pub fn set_cost_info(&mut self, cost: f64) {
         self.cost_info = format!("${:.4}", cost);
+    }
+
+    pub fn set_cost_info_string(&mut self, cost_info: String) {
+        self.cost_info = cost_info;
     }
 
     #[allow(dead_code)]
@@ -102,7 +116,7 @@ impl StatusBar {
         } else if self.conversation_cost > 0.0 {
             self.cost_info = format!("${:.4}", self.conversation_cost);
         } else {
-            self.cost_info = "$0.00".to_string();
+            self.cost_info = DEFAULT_COST.to_string();
         }
     }
 
@@ -124,47 +138,52 @@ impl Component for StatusBar {
         // Build status line sections based on available width
         let mut spans = Vec::new();
         
-        // Always show status message (highest priority)
-        spans.push(Span::styled(&self.status_message, theme.normal()));
+        // Status message with fixed width (highest priority)
+        let truncated_status = if self.status_message.len() > STATUS_MESSAGE_WIDTH {
+            format!("{}…", &self.status_message[..STATUS_MESSAGE_WIDTH.saturating_sub(1)])
+        } else {
+            format!("{:<width$}", self.status_message, width = STATUS_MESSAGE_WIDTH)
+        };
+        spans.push(Span::styled(truncated_status, theme.normal()));
         
         // Model info (high priority)
-        if available_width > 40 {
-            spans.push(Span::raw(" │ "));
+        if available_width > 60 {
+            spans.push(Span::raw(SEPARATOR));
             spans.push(Span::styled(&self.model_info, theme.accent()));
         }
         
         // Cost info (medium priority)
-        if available_width > 60 && self.cost_info != "$0.00" {
-            spans.push(Span::raw(" │ "));
+        if available_width > 80 && self.cost_info != DEFAULT_COST {
+            spans.push(Span::raw(SEPARATOR));
             spans.push(Span::styled(&self.cost_info, theme.warning()));
         }
         
         // Connection status (medium priority)
-        if available_width > 80 {
-            spans.push(Span::raw(" │ "));
+        if available_width > 100 {
+            spans.push(Span::raw(SEPARATOR));
             spans.push(Span::styled(conn_symbol, conn_style));
             spans.push(Span::raw(" "));
             spans.push(Span::styled(
                 match &self.connection_status {
-                    ConnectionStatus::Connected => "Connected",
-                    ConnectionStatus::Connecting => "Connecting...",
-                    ConnectionStatus::Disconnected => "Disconnected",
+                    ConnectionStatus::Connected => CONNECTION_CONNECTED,
+                    ConnectionStatus::Connecting => CONNECTION_CONNECTING,
+                    ConnectionStatus::Disconnected => CONNECTION_DISCONNECTED,
                     ConnectionStatus::Error(err) => err,
                 },
                 theme.secondary()
             ));
-        } else if available_width > 50 {
+        } else if available_width > 70 {
             // Just show the connection indicator symbol
-            spans.push(Span::raw(" │ "));
+            spans.push(Span::raw(SEPARATOR));
             spans.push(Span::styled(conn_symbol, conn_style));
         }
         
         // Key hints (low priority, shown on the right)
-        if available_width > 100 && !self.key_hints.is_empty() {
+        if available_width > 120 && !self.key_hints.is_empty() {
             let hints_text = self.key_hints.iter()
                 .map(|hint| format!("{}: {}", hint.key, hint.action))
                 .collect::<Vec<_>>()
-                .join(" │ ");
+                .join(SEPARATOR);
             
             // Calculate space needed for hints
             let left_text_len: usize = spans.iter()
@@ -177,7 +196,7 @@ impl Component for StatusBar {
                 // Add spacing to push hints to the right
                 let padding = available_width - left_text_len - hints_len - 5;
                 spans.push(Span::raw(" ".repeat(padding)));
-                spans.push(Span::raw(" │ "));
+                spans.push(Span::raw(SEPARATOR));
                 spans.push(Span::styled(hints_text, theme.secondary()));
             }
         }

@@ -3,6 +3,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     Frame,
 };
+use rust_decimal::prelude::ToPrimitive;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -11,11 +12,22 @@ use crate::tui::{
     components::{
         chat_view::{ChatMessage, ChatView, MessageRole},
         conversation_list::{ConversationItem, ConversationList},
-        Component, HelpPopup, InputBox, StatusBar, status_bar::{KeyHint, ConnectionStatus}
+        Component, HelpPopup, InputBox, StatusBar, CostTracker, status_bar::{KeyHint, ConnectionStatus}
     },
     Event, Theme,
 };
 use valechat::{app::AppState, chat::{types::{ChatSession, MessageRole as ChatMessageRole}}};
+
+// Constants for repeated status messages
+const STATUS_TYPE_MESSAGE: &str = "Type your message (Enter to send)";
+const STATUS_SENDING: &str = "Sending...";
+const STATUS_WAITING_RESPONSE: &str = "Waiting for response...";
+const STATUS_SELECT_CONVERSATION: &str = "Select conversation (Enter to open, n for new)";
+const STATUS_READING_CONVERSATION: &str = "Reading conversation (Tab to input message)";
+const STATUS_COMMAND_EXECUTED: &str = "Command executed";
+const STATUS_COMMAND_EXECUTING: &str = "Executing command...";
+const STATUS_RENAME_CONVERSATION: &str = "Enter new conversation name (Enter to save, Esc to cancel)";
+const STATUS_RENAME_CANCELLED: &str = "Rename cancelled";
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum FocusedPanel {
@@ -31,6 +43,7 @@ pub struct App {
     input_box: InputBox,
     status_bar: StatusBar,
     help_popup: HelpPopup,
+    cost_tracker: CostTracker,
     
     // State
     focused_panel: FocusedPanel,
@@ -72,6 +85,7 @@ impl App {
             input_box: InputBox::new(),
             status_bar: StatusBar::new(),
             help_popup: HelpPopup::new(),
+            cost_tracker: CostTracker::new(),
             focused_panel: FocusedPanel::ConversationList,
             theme: Theme::dark(),
             should_quit: false,
@@ -159,6 +173,9 @@ impl App {
             Event::StatusUpdate(status) => {
                 self.status_bar.set_status(status);
             }
+            Event::Quit => {
+                self.should_quit = true;
+            }
             _ => {}
         }
     }
@@ -176,6 +193,10 @@ impl App {
             }
             (KeyCode::Char('/'), KeyModifiers::CONTROL) => {
                 self.help_popup.toggle();
+                true
+            }
+            (KeyCode::Char('m'), KeyModifiers::CONTROL) => {
+                self.cost_tracker.toggle_details();
                 true
             }
             (KeyCode::Tab, KeyModifiers::NONE) => {
@@ -240,7 +261,7 @@ impl App {
                 
                 // Update status based on input box content (only when input box is focused)
                 if self.focused_panel == FocusedPanel::InputBox {
-                    self.status_bar.set_status("Type your message (Enter to send)".to_string());
+                    self.status_bar.set_status(STATUS_TYPE_MESSAGE.to_string());
                 }
                 
                 result
@@ -282,7 +303,7 @@ impl App {
                     if !content.trim().is_empty() {
                         self.input_box.clear();
                         // Show "Sending..." since user is actively sending from input box
-                        self.status_bar.set_status("Sending...".to_string());
+                        self.status_bar.set_status(STATUS_SENDING.to_string());
                         let _ = self.event_sender.send(Event::SendMessage(content));
                     }
                 }
@@ -359,13 +380,37 @@ impl App {
         self.status_bar.set_key_hints(key_hints);
     }
 
+    /// Update cost tracker with current usage data
+    pub async fn update_cost_tracker(&mut self) {
+        // Get usage statistics
+        if let Ok(stats) = self.app_state.get_usage_repo().get_usage_statistics().await {
+            self.cost_tracker.update_stats(stats);
+        }
+
+        // Get daily spending
+        if let Ok((daily_cost, _daily_tokens)) = self.app_state.get_usage_repo().get_daily_statistics().await {
+            // Get 7-day trend data
+            if let Ok(trend_data) = self.app_state.get_usage_repo().get_cost_trend(7).await {
+                let trend_u64: Vec<u64> = trend_data.iter()
+                    .map(|(_, cost)| (cost.to_f64().unwrap_or(0.0) * 1000.0) as u64) // Convert to cents for better visualization
+                    .collect();
+                self.cost_tracker.update_daily_data(daily_cost, trend_u64);
+            }
+        }
+
+        // Update status bar with cost summary
+        let cost_summary = self.cost_tracker.get_status_summary();
+        // This would need a method on StatusBar to accept cost info
+        // For now, we'll just keep the cost tracker updated
+    }
+
     fn update_status_for_focused_panel(&mut self) {
         match self.focused_panel {
             FocusedPanel::ConversationList => {
-                self.status_bar.set_status("Select conversation (Enter to open, n for new)".to_string());
+                self.status_bar.set_status(STATUS_SELECT_CONVERSATION.to_string());
             }
             FocusedPanel::ChatView => {
-                self.status_bar.set_status("Reading conversation (Tab to input message)".to_string());
+                self.status_bar.set_status(STATUS_READING_CONVERSATION.to_string());
             }
             FocusedPanel::InputBox => {
                 self.status_bar.set_status("Type your message (Enter to send)".to_string());
@@ -529,7 +574,7 @@ impl App {
         if let Some(current_conversation) = self.conversation_list.get_selected_conversation() {
             // Show conversation loop status only if input box was focused when sending
             if self.focused_panel == FocusedPanel::InputBox {
-                self.status_bar.set_status("Sending...".to_string());
+                self.status_bar.set_status(STATUS_SENDING.to_string());
             }
             self.status_bar.set_connection_status(ConnectionStatus::Connecting);
             
@@ -548,7 +593,7 @@ impl App {
             
             // Update status to show we're waiting for response (only if input box focused)
             if self.focused_panel == FocusedPanel::InputBox {
-                self.status_bar.set_status("Waiting for response...".to_string());
+                self.status_bar.set_status(STATUS_WAITING_RESPONSE.to_string());
             }
             
             // Send message through provider
@@ -577,9 +622,12 @@ impl App {
                     self.status_bar.update_conversation_cost(0.001); // Placeholder cost
                     self.status_bar.update_session_cost(0.005); // Placeholder total
                     
+                    // Update cost tracker with real data
+                    self.update_cost_tracker().await;
+                    
                     // Only show conversation loop status if input box is focused
                     if self.focused_panel == FocusedPanel::InputBox {
-                        self.status_bar.set_status("Type your message (Enter to send)".to_string());
+                        self.status_bar.set_status(STATUS_TYPE_MESSAGE.to_string());
                     }
                 }
                 Err(e) => {
@@ -608,7 +656,7 @@ impl App {
 
         // Show executing status
         if self.focused_panel == FocusedPanel::InputBox {
-            self.status_bar.set_status("Executing command...".to_string());
+            self.status_bar.set_status(STATUS_COMMAND_EXECUTING.to_string());
         }
 
         // Execute the command
@@ -633,7 +681,7 @@ impl App {
 
         // Update status
         if self.focused_panel == FocusedPanel::InputBox {
-            self.status_bar.set_status("Command executed".to_string());
+            self.status_bar.set_status(STATUS_COMMAND_EXECUTED.to_string());
         }
     }
 
@@ -683,7 +731,7 @@ impl App {
                 input_box,
             });
             
-            self.status_bar.set_status("Enter new conversation name (Enter to save, Esc to cancel)".to_string());
+            self.status_bar.set_status(STATUS_RENAME_CONVERSATION.to_string());
         } else {
             self.status_bar.set_status("Error: Could not load conversation for renaming".to_string());
         }
@@ -706,7 +754,7 @@ impl App {
                 KeyCode::Esc => {
                     // Cancel rename
                     self.rename_mode = None;
-                    self.status_bar.set_status("Rename cancelled".to_string());
+                    self.status_bar.set_status(STATUS_RENAME_CANCELLED.to_string());
                     true
                 }
                 _ => {
@@ -781,12 +829,25 @@ impl App {
     }
 
     pub fn render(&mut self, frame: &mut Frame) {
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
+        // Check if cost tracker is in detailed view
+        let show_cost_details = self.cost_tracker.show_details;
+        
+        let main_constraints = if show_cost_details {
+            vec![
+                Constraint::Min(1),      // Main content
+                Constraint::Length(8),   // Cost tracker details
+                Constraint::Length(1),   // Status bar
+            ]
+        } else {
+            vec![
                 Constraint::Min(1),      // Main content
                 Constraint::Length(1),   // Status bar
-            ])
+            ]
+        };
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(main_constraints)
             .split(frame.size());
 
         let main_chunks = Layout::default()
@@ -809,7 +870,17 @@ impl App {
         self.conversation_list.render(frame, main_chunks[0], &self.theme);
         self.chat_view.render(frame, right_chunks[0], &self.theme);
         self.input_box.render(frame, right_chunks[1], &self.theme);
-        self.status_bar.render(frame, chunks[1], &self.theme);
+        
+        if show_cost_details {
+            // Render detailed cost tracker
+            self.cost_tracker.render(frame, chunks[1]);
+            self.status_bar.render(frame, chunks[2], &self.theme);
+        } else {
+            // Render compact cost info in status bar
+            let cost_summary = self.cost_tracker.get_status_summary();
+            self.status_bar.set_cost_info_string(cost_summary);
+            self.status_bar.render(frame, chunks[1], &self.theme);
+        }
 
         // Render rename dialog if in rename mode
         if self.rename_mode.is_some() {

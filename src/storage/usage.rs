@@ -756,7 +756,7 @@ mod tests {
     async fn test_record_usage() {
         let (repo, _temp_dir) = create_test_repository().await;
 
-        let request_id = repo.record_usage(
+        let request_id = reporecord_usage(
             "openai",
             "gpt-4",
             100,

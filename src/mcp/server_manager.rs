@@ -370,10 +370,10 @@ impl MCPServerInstance {
 }
 
 /// Manager for multiple MCP server instances
+#[derive(Clone)]
 pub struct MCPServerManager {
     servers: Arc<RwLock<HashMap<String, MCPServerInstance>>>,
     health_check_interval: Duration,
-    _health_check_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl MCPServerManager {
@@ -381,7 +381,6 @@ impl MCPServerManager {
         Self {
             servers: Arc::new(RwLock::new(HashMap::new())),
             health_check_interval: Duration::from_secs(30),
-            _health_check_handle: None,
         }
     }
 
@@ -541,8 +540,10 @@ impl MCPServerManager {
                 }
             }
         });
-
-        self._health_check_handle = Some(handle);
+        
+        // Note: We don't store the handle anymore since the struct needs to be Clone
+        // The health check task will run independently
+        tokio::spawn(handle);
     }
 
     /// Send a request to a specific server

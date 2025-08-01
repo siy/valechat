@@ -9,6 +9,7 @@ use crate::platform::{AppPaths, SecureStorageManager};
 use crate::storage::{Database, ConversationRepository, UsageRepository};
 use crate::chat::types::{MessageContent, ChatMessage, MessageRole as ChatMessageRole};
 use crate::models::provider::ModelProvider;
+use crate::mcp::{MCPClient, MCPClientConfig, MCPServerManager};
 
 pub struct AppState {
     config: Arc<RwLock<AppConfig>>,
@@ -18,6 +19,8 @@ pub struct AppState {
     conversation_repo: ConversationRepository,
     usage_repo: UsageRepository,
     api_key_cache: Arc<RwLock<HashMap<String, String>>>,
+    mcp_client: Option<Arc<tokio::sync::Mutex<MCPClient>>>,
+    mcp_server_manager: Arc<tokio::sync::Mutex<MCPServerManager>>,
 }
 
 impl AppState {
@@ -36,7 +39,15 @@ impl AppState {
         let conversation_repo = ConversationRepository::new(pool.clone());
         let usage_repo = UsageRepository::new(pool.clone());
 
-        let app_state = Self {
+        // Initialize MCP server manager
+        let mcp_server_manager = Arc::new(tokio::sync::Mutex::new(MCPServerManager::new()));
+        
+        // Initialize MCP client with server manager
+        // Note: We'll initialize the client after creating AppState because MCPClient 
+        // needs a cloned MCPServerManager, not a reference
+        let mcp_client = None;
+
+        let mut app_state = Self {
             config: Arc::new(RwLock::new(config.clone())),
             paths,
             secure_storage,
@@ -44,24 +55,43 @@ impl AppState {
             conversation_repo,
             usage_repo,
             api_key_cache: Arc::new(RwLock::new(HashMap::new())),
+            mcp_client,
+            mcp_server_manager,
         };
-
-        // Migrate existing API keys to consolidated storage if needed
-        info!("Checking for API key migration to consolidated storage");
-        if let Err(e) = app_state.secure_storage.migrate_to_consolidated_storage().await {
-            tracing::warn!("API key migration failed: {}", e);
+        
+        // Now initialize MCP client if there are MCP servers configured
+        if !config.mcp_servers.is_empty() {
+            let mcp_config = MCPClientConfig::default();
+            let server_manager_clone = {
+                let guard = app_state.mcp_server_manager.lock().await;
+                (*guard).clone()
+            };
+            
+            match MCPClient::new(server_manager_clone, mcp_config) {
+                Ok(client) => {
+                    app_state.mcp_client = Some(Arc::new(tokio::sync::Mutex::new(client)));
+                    info!("MCP client initialized successfully");
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to initialize MCP client: {}", e);
+                }
+            }
         }
 
-        // Pre-populate API key cache using consolidated storage (single keychain prompt)
+
+        // Pre-populate API key cache (single keychain prompt)
         let enabled_providers: Vec<&str> = config.models.iter()
             .filter(|(_, config)| config.enabled)
             .map(|(name, _)| name.as_str())
             .collect();
         
         if !enabled_providers.is_empty() {
-            info!("Pre-loading API keys for {} enabled providers using consolidated storage", enabled_providers.len());
+            info!("Pre-loading API keys for {} enabled providers", enabled_providers.len());
             let _ = app_state.get_api_keys_batch_consolidated(&enabled_providers).await;
         }
+
+        // Initialize MCP servers
+        app_state.initialize_mcp_servers().await?;
 
         Ok(app_state)
     }
@@ -159,7 +189,7 @@ impl AppState {
         Ok(result)
     }
 
-    /// Batch retrieve API keys using consolidated storage (single keychain prompt)
+    /// Batch retrieve API keys (single keychain prompt)
     pub async fn get_api_keys_batch_consolidated(&self, providers: &[&str]) -> Result<std::collections::HashMap<String, String>> {
         let mut result = std::collections::HashMap::new();
         let mut uncached_providers = Vec::new();
@@ -198,7 +228,7 @@ impl AppState {
                         for (provider, api_key) in cache_updates {
                             cache.insert(provider, api_key);
                         }
-                        debug!("Updated cache with {} API keys from consolidated storage", result.len());
+                        debug!("Updated cache with {} API keys", result.len());
                     }
                 }
                 Err(e) => {
@@ -565,6 +595,115 @@ impl AppState {
         self.conversation_repo.create_message(&assistant_msg).await?;
         
         Ok(response)
+    }
+
+    /// Initialize MCP servers based on configuration
+    async fn initialize_mcp_servers(&self) -> Result<()> {
+        let config = self.get_config();
+        let enabled_servers = config.get_enabled_mcp_servers();
+        
+        if enabled_servers.is_empty() {
+            info!("No MCP servers enabled in configuration");
+            return Ok(());
+        }
+
+        info!("Initializing {} MCP servers", enabled_servers.len());
+        
+        let mut server_manager = self.mcp_server_manager.lock().await;
+        
+        for server_name in enabled_servers {
+            if let Some(server_config) = config.mcp_servers.get(server_name) {
+                if server_config.auto_start {
+                    info!("Adding and starting MCP server: {}", server_name);
+                    
+                    // Add the server to the manager
+                    if let Err(e) = server_manager.add_server(server_name.to_string(), server_config.clone()).await {
+                        tracing::warn!("Failed to add MCP server {}: {}", server_name, e);
+                        continue;
+                    }
+                    
+                    // Start the server
+                    match server_manager.start_server(server_name).await {
+                        Ok(_) => info!("Successfully started MCP server: {}", server_name),
+                        Err(e) => tracing::warn!("Failed to start MCP server {}: {}", server_name, e),
+                    }
+                }
+            }
+        }
+        
+        Ok(())
+    }
+
+    /// Get the MCP client
+    pub fn get_mcp_client(&self) -> Option<Arc<tokio::sync::Mutex<MCPClient>>> {
+        self.mcp_client.as_ref().map(Arc::clone)
+    }
+
+    /// Get the MCP server manager
+    pub fn get_mcp_server_manager(&self) -> Arc<tokio::sync::Mutex<MCPServerManager>> {
+        Arc::clone(&self.mcp_server_manager)
+    }
+
+    /// List available MCP tools
+    pub async fn list_mcp_tools(&self) -> Result<HashMap<String, Vec<crate::mcp::Tool>>> {
+        if let Some(client) = &self.mcp_client {
+            let client = client.lock().await;
+            client.list_tools().await
+        } else {
+            Ok(HashMap::new())
+        }
+    }
+
+    /// Execute an MCP tool
+    pub async fn execute_mcp_tool(
+        &self,
+        server_name: &str,
+        tool_name: &str,
+        arguments: serde_json::Value,
+    ) -> Result<crate::mcp::ToolResult> {
+        if let Some(client) = &self.mcp_client {
+            let client = client.lock().await;
+            client.call_tool(server_name, tool_name, arguments, None).await
+        } else {
+            Err(crate::error::Error::mcp("MCP client not initialized".to_string()))
+        }
+    }
+
+    /// Check if a specific MCP server is running
+    pub async fn is_mcp_server_running(&self, server_name: &str) -> bool {
+        let server_manager = self.mcp_server_manager.lock().await;
+        server_manager.get_server(server_name).await == Some(crate::mcp::ServerState::Ready)
+    }
+
+    /// Start an MCP server
+    pub async fn start_mcp_server(&self, server_name: &str) -> Result<()> {
+        let config = self.get_config();
+        
+        if let Some(server_config) = config.mcp_servers.get(server_name) {
+            let mut server_manager = self.mcp_server_manager.lock().await;
+            
+            // Add the server if not already added
+            if server_manager.get_server(server_name).await.is_none() {
+                server_manager.add_server(server_name.to_string(), server_config.clone()).await?;
+            }
+            
+            // Start the server
+            server_manager.start_server(server_name).await
+        } else {
+            Err(crate::error::Error::mcp(format!("MCP server {} not found in configuration", server_name)))
+        }
+    }
+
+    /// Stop an MCP server
+    pub async fn stop_mcp_server(&self, server_name: &str) -> Result<()> {
+        let mut server_manager = self.mcp_server_manager.lock().await;
+        server_manager.stop_server(server_name).await
+    }
+
+    /// Get status of all MCP servers
+    pub async fn get_mcp_server_status(&self) -> HashMap<String, (crate::mcp::ServerState, crate::mcp::ServerHealth)> {
+        let server_manager = self.mcp_server_manager.lock().await;
+        server_manager.get_server_status().await
     }
 }
 

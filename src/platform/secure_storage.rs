@@ -66,7 +66,7 @@ impl SecureStorageManager {
     }
 
     pub async fn store_api_key(&self, provider: &str, key: &str) -> Result<()> {
-        debug!("Storing API key for provider: {} using consolidated storage", provider);
+        debug!("Storing API key for provider: {}", provider);
         
         // Get current bundle or create new one
         let mut bundle = self.retrieve_api_key_bundle().await?;
@@ -87,7 +87,7 @@ impl SecureStorageManager {
     }
 
     pub async fn retrieve_api_key(&self, provider: &str) -> Result<Option<String>> {
-        debug!("Retrieving API key for provider: {} using consolidated storage", provider);
+        debug!("Retrieving API key for provider: {}", provider);
         
         let bundle = self.retrieve_api_key_bundle().await?;
         let result = bundle.get_key(provider).cloned();
@@ -107,7 +107,7 @@ impl SecureStorageManager {
     }
 
     pub async fn delete_api_key(&self, provider: &str) -> Result<()> {
-        debug!("Deleting API key for provider: {} using consolidated storage", provider);
+        debug!("Deleting API key for provider: {}", provider);
         
         // Get current bundle
         let mut bundle = self.retrieve_api_key_bundle().await?;
@@ -138,75 +138,43 @@ impl SecureStorageManager {
     }
 
     pub async fn list_providers(&self) -> Result<Vec<String>> {
-        self.backend.list_keys("ai.valechat.api_keys").await
+        let bundle = self.retrieve_api_key_bundle().await?;
+        Ok(bundle.keys.keys().cloned().collect())
     }
 
-    /// Store all API keys in a single consolidated keychain entry
+    /// Store all API keys in a single keychain entry
     pub async fn store_api_key_bundle(&self, bundle: &ApiKeyBundle) -> Result<()> {
-        debug!("Storing consolidated API key bundle with {} keys", bundle.keys.len());
+        debug!("Storing API key bundle with {} keys", bundle.keys.len());
         
         let json = bundle.to_json()?;
         let result = self.backend.store("ai.valechat.consolidated", "api_keys", &json).await;
         
         if result.is_ok() {
-            info!("Successfully stored consolidated API key bundle");
+            info!("Successfully stored API key bundle");
         } else {
-            warn!("Failed to store consolidated API key bundle");
+            warn!("Failed to store API key bundle");
         }
         
         result
     }
 
-    /// Retrieve all API keys from the consolidated keychain entry
+    /// Retrieve all API keys from the keychain entry
     pub async fn retrieve_api_key_bundle(&self) -> Result<ApiKeyBundle> {
-        debug!("Retrieving consolidated API key bundle");
+        debug!("Retrieving API key bundle");
         
         match self.backend.retrieve("ai.valechat.consolidated", "api_keys").await? {
             Some(json) => {
                 let bundle = ApiKeyBundle::from_json(&json)?;
-                debug!("Successfully retrieved consolidated API key bundle with {} keys", bundle.keys.len());
+                debug!("Successfully retrieved API key bundle with {} keys", bundle.keys.len());
                 Ok(bundle)
             }
             None => {
-                debug!("No consolidated API key bundle found, returning empty bundle");
+                debug!("No API key bundle found, returning empty bundle");
                 Ok(ApiKeyBundle::new())
             }
         }
     }
 
-    /// Migrate existing individual API keys to consolidated storage
-    pub async fn migrate_to_consolidated_storage(&self) -> Result<()> {
-        info!("Starting migration to consolidated API key storage");
-        
-        // Try to retrieve individual keys first
-        let providers = vec!["openai", "anthropic", "gemini"];
-        let mut bundle = self.retrieve_api_key_bundle().await?;
-        let mut migrated_count = 0;
-        
-        for provider in &providers {
-            if let Ok(Some(api_key)) = self.backend.retrieve("ai.valechat.api_keys", provider).await {
-                if bundle.get_key(provider).is_none() {
-                    bundle.set_key(provider, &api_key);
-                    migrated_count += 1;
-                    info!("Migrated API key for provider: {}", provider);
-                    
-                    // Clean up old individual entry
-                    if let Err(e) = self.backend.delete("ai.valechat.api_keys", provider).await {
-                        warn!("Failed to cleanup old API key for {}: {}", provider, e);
-                    }
-                }
-            }
-        }
-        
-        if migrated_count > 0 {
-            self.store_api_key_bundle(&bundle).await?;
-            info!("Successfully migrated {} API keys to consolidated storage", migrated_count);
-        } else {
-            debug!("No API keys to migrate");
-        }
-        
-        Ok(())
-    }
 
     async fn log_key_access(&self, operation: &str, provider: &str, success: bool) -> Result<()> {
         // In a real implementation, this would write to a secure audit log

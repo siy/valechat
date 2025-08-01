@@ -64,6 +64,7 @@ impl HelpPopup {
             ("", ""),
             ("General", ""),
             ("  F1 / Ctrl+/", "Show/hide this help"),
+            ("  Ctrl+M", "Toggle cost tracking details"),
             ("  Ctrl+C / Ctrl+Q", "Quit application"),
             ("  Ctrl+S", "Settings"),
             ("  Ctrl+E", "Export conversation"),

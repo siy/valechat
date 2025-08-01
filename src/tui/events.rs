@@ -35,6 +35,8 @@ pub enum Event {
     Error(String),
     #[allow(dead_code)]
     StatusUpdate(String),
+    #[allow(dead_code)]
+    Quit,
 }
 
 pub struct EventHandler {

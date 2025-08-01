@@ -3,6 +3,7 @@ pub mod conversation_list;
 pub mod input_box;
 pub mod status_bar;
 pub mod help_popup;
+pub mod cost_tracker;
 
 use ratatui::{layout::Rect, Frame};
 use crate::tui::{Event, Theme};
@@ -10,6 +11,7 @@ use crate::tui::{Event, Theme};
 pub use input_box::InputBox;
 pub use status_bar::StatusBar;
 pub use help_popup::HelpPopup;
+pub use cost_tracker::CostTracker;
 
 /// Base trait for all TUI components
 pub trait Component {
